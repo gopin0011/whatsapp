@@ -4,42 +4,60 @@ import { AppDispatch, RootState } from "../../Redux/store";
 import { IMessage, updateChatMessage } from "../../Redux/reducers/msg/MsgReducer";
 import { SocketContext } from "../../App";
 import { toggleDeleteMessage } from "../../Redux/reducers/utils/Features";
+import axios from "axios"; // CENTRIFUGO: pengganti socket.emit untuk aksi kirim (hapus pesan)
 
 const DeleteConfirmationPopup = ({ message }: { message: IMessage }) => {
     const dispatch: AppDispatch = useDispatch();
     const { deleteMsg } = useSelector((store: RootState) => store.features);
+    const { user } = useSelector((store: RootState) => store.auth); // CENTRIFUGO: perlu userId untuk nama channel
     const [isLoading, setIsLoading] = useState(false);
+
+    // CENTRIFUGO: context sekarang bertipe Centrifuge | null
     const socket = useContext(SocketContext);
 
-    const handleDeleteMsg = () => {
+    // CENTRIFUGO: emit + ack diganti REST API. Backend menghapus pesan lalu mengembalikan
+    // chat yang sudah terupdate di response, dan juga mem-publish "delete_msg" ke channel
+    // personal user lain (mis. lawan chat) supaya perangkat mereka ikut ter-update.
+    const handleDeleteMsg = async () => {
         setIsLoading(true);
-        if (socket.connected) {
-            socket.emit("delete_message", message, (ack: any) => {
-                setIsLoading(false);
-                dispatch(updateChatMessage(ack));
-                dispatch(toggleDeleteMessage(false));
+        try {
+            const res = await axios.post(`${import.meta.env.VITE_API_CLIENT_URL}/messages/delete`, {
+                message,
             });
+            dispatch(updateChatMessage(res.data));
+            dispatch(toggleDeleteMessage(false));
+        } catch (error) {
+            console.error("Gagal menghapus pesan:", error);
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    // useEffect should not be conditionally rendered. Instead, check inside the effect.
+    // CENTRIFUGO: tidak subscribe baru di sini — ambil subscription channel personal yang
+    // sudah dibuat sekali di App.tsx / dipakai bersama useRecieveMessage, lalu dengar tipe "delete_msg" saja.
     useEffect(() => {
-        if (socket.connected) {
-            const handleDeleteMessage = (chat: any) => {
-                dispatch(updateChatMessage(chat));
+        if (!socket || socket.state !== 'connected' || !user?._id) return;
+
+        const sub = socket.getSubscription(`personal:${user._id}`);
+        if (!sub) {
+            console.warn('Subscription personal belum ada — pastikan sudah dibuat di App.tsx setelah connect');
+            return;
+        }
+
+        const handlePublication = (ctx: any) => {
+            if (ctx.data.type === "delete_msg") {
+                dispatch(updateChatMessage(ctx.data.data));
                 setIsLoading(false);
                 dispatch(toggleDeleteMessage(false));
-            };
+            }
+        };
 
-            socket.on("delete_msg", handleDeleteMessage);
+        sub.on('publication', handlePublication);
 
-            return () => {
-                if (socket.connected) {
-                    socket.off("delete_msg", handleDeleteMessage);
-                }
-            };
-        }
-    }, [socket]);
+        return () => {
+            sub.off('publication', handlePublication);
+        };
+    }, [socket, user?._id]);
 
     const cancelMsg = () => {
         setIsLoading(false);

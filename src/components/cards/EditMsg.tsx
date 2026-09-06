@@ -8,11 +8,14 @@ import { AppDispatch, RootState } from "../../Redux/store";
 import { ChatMessage, updateChatMessage } from "../../Redux/reducers/msg/MsgReducer";
 import { useEffect, useState } from "react";
 import { ClipLoader } from "react-spinners"
+import axios from "axios"; // CENTRIFUGO: pengganti socket.emit untuk aksi kirim (edit pesan)
 
 import { SocketContext } from "../../App";
 const EditMsg = ({ message }: { message: ChatMessage }) => {
     const dispatch: AppDispatch = useDispatch()
+    // CENTRIFUGO: context sekarang bertipe Centrifuge | null
     const socket = useContext(SocketContext);
+    const { user } = useSelector((store: RootState) => store.auth); // CENTRIFUGO: perlu userId untuk nama channel
     const [msg, setMsg] = useState(message?.message)
     const [isLoading, setIsLoading] = useState(false)
     useEffect(() => {
@@ -23,30 +26,53 @@ const EditMsg = ({ message }: { message: ChatMessage }) => {
     const handleChangeMsg = (e: any) => {
         setMsg(e.target.value)
     }
-    const handleUpdateMsg = (e: React.FormEvent<HTMLFormElement>) => {
 
+    // CENTRIFUGO: emit + ack diganti REST API. Backend mengupdate pesan lalu mengembalikan
+    // chat yang sudah terupdate di response, dan mem-publish "update_msg" ke channel personal
+    // lawan chat supaya perangkat mereka ikut ter-update.
+    const handleUpdateMsg = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault()
         setIsLoading(true)
-        if (socket.connected) {
-            socket.emit("edit_message", { ...message, message: msg }, (ack: any) => {
-                setIsLoading(false)
-                dispatch(updateChatMessage(ack))
-                dispatch(toggleEditMessage(false))
-            })
+        try {
+            const res = await axios.post(`${import.meta.env.VITE_API_CLIENT_URL}/messages/edit`, {
+                ...message,
+                message: msg,
+            });
+            dispatch(updateChatMessage(res.data));
+            dispatch(toggleEditMessage(false));
+        } catch (error) {
+            console.error("Gagal mengedit pesan:", error);
+        } finally {
+            setIsLoading(false);
         }
     }
+
+    // CENTRIFUGO: tidak subscribe baru di sini — ambil subscription channel personal yang
+    // sudah dibuat sekali di App.tsx / dipakai bersama useRecieveMessage & DeleteMsg, lalu
+    // dengar tipe "update_msg" saja.
     useEffect(() => {
-        if (socket.connected) {
-            socket.on("update_msg", (chat: any) => {
-                dispatch(updateChatMessage(chat))
-                setIsLoading(false)
-                dispatch(toggleEditMessage(false))
-            })
-            return () => {
-                socket.off("update_msg");
-            };
+        if (!socket || socket.state !== 'connected' || !user?._id) return;
+
+        const sub = socket.getSubscription(`personal:${user._id}`);
+        if (!sub) {
+            console.warn('Subscription personal belum ada — pastikan sudah dibuat di App.tsx setelah connect');
+            return;
         }
-    }, [socket])
+
+        const handlePublication = (ctx: any) => {
+            if (ctx.data.type === "update_msg") {
+                dispatch(updateChatMessage(ctx.data.data));
+                setIsLoading(false);
+                dispatch(toggleEditMessage(false));
+            }
+        };
+
+        sub.on('publication', handlePublication);
+
+        return () => {
+            sub.off('publication', handlePublication);
+        };
+    }, [socket, user?._id])
     return (
         <>
             <div

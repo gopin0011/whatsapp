@@ -1,35 +1,28 @@
-import { io, Socket } from "socket.io-client";
+import { Centrifuge } from "centrifuge";
 import { UserState } from "../../Auth/AuthReducer";
-// import { toast } from "react-toastify";
 
-const createSocket = (user: UserState | null, url: string): Promise<Socket> => {
-    const startTime = performance.now();  // Start time
-    return new Promise<Socket>((resolve, reject) => {
-        const socket = io(url, {
-            autoConnect: false,
-            withCredentials: true,
-            auth: { token: user?.refreshToken },
+const createSocket = (user: UserState | null, url: string): Promise<Centrifuge> => {
+    const startTime = performance.now();
+    return new Promise<Centrifuge>((resolve, reject) => {
+        if (!user?.refreshToken) {
+            reject(new Error("Token tidak tersedia, tidak bisa connect ke Centrifugo"));
+            return;
+        }
+
+        const centrifuge = new Centrifuge(url, {
+            token: user.refreshToken,
         });
-        socket.on('connect', () => {
-            // const endTime = performance.now();  // End time
-            // const duration = endTime - startTime;  // Calculate duration
-            // toast.success(`${url.includes("calls") ? "call " : "chat "} connected successfully in ${duration.toFixed(2)} ms.`, { position: 'top-center' })
-            resolve(socket);
+
+        centrifuge.on('connected', () => {
+            resolve(centrifuge);
         });
-        socket.on('connect_error', (error) => {
-            const endTime = performance.now();  // End time
-            const duration = endTime - startTime;  // Calculate duration
-            console.error(`Connection error after ${duration.toFixed(2)} ms:`, error);
-            reject(error);
+
+        centrifuge.on('error', (ctx) => {
+            reject(ctx);
         });
-        socket.on('disconnect', (reason) => {
-            console.warn(`Socket disconnected: ${reason}`);
-        });
-        socket.on('close', (reason) => {
-            console.warn(`Socket closed: ${reason}`);
-        });
-        socket.connect();
+
+        centrifuge.connect();
     });
 };
 
-export default createSocket
+export default createSocket;
