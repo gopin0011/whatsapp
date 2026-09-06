@@ -33,7 +33,9 @@ const Users: React.FC<UsersProps> = ({
       chat.pushName ||
       chat.jid.split('@')[0];
 
-    navigate(`/chat/${encodeURIComponent(chat.jid)}`, {
+    const encodedJid = btoa(chat.jid);
+
+    navigate(`/chat/${encodedJid}`, {
       state: {
         jid: chat.jid,
         display_name: title,
@@ -78,7 +80,7 @@ const Users: React.FC<UsersProps> = ({
         {isFetching ? (
           <div>
             {skeliton.map((_, index) => (
-              <UserSkeliton key="{index}"/>
+              <UserSkeliton key={index} />
             ))}
           </div>
         ) : latestChats.length > 0 ? (

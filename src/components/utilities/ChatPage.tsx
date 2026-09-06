@@ -42,7 +42,7 @@ import Audio from "./Audio";
 import IncomingCall from "../cards/IncommingCall";
 
 import { ChevronDown } from "lucide-react";
-
+import { useSocket } from "../../context/SocketContext";
 
 const getRandomColors = (
   count: number,
@@ -91,6 +91,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const { jid } = useParams<{ jid: string }>();
 
+  const realJid = useMemo(() => {
+    if (!jid) return "";
+    try {
+      return atob(jid); // Mengubah "MTIzQGcudXM=" kembali jadi "123@g.us"
+    } catch (e) {
+      // Fallback jika URL tidak ter-encode dengan benar
+      return jid; 
+    }
+  }, [jid]);
+
   const location = useLocation();
 
   const chatState =
@@ -119,34 +129,86 @@ const ChatPage: React.FC<ChatPageProps> = ({
     (state: RootState) => state.auth
   );
 
+  const { centrifuge } = useSocket(); 
+
+  // =========================================================
+  // REALTIME CENTRIFUGO UNTUK CHAT PAGE
+  // =========================================================
+  useEffect(() => {
+    if (!centrifuge || !jid) return;
+
+    const channelName = 'whatsapp:messages';
+    const currentJid = decodeURIComponent(jid).toLowerCase();
+
+    // 1. Cek atau buat subscription
+    let sub = centrifuge.getSubscription(channelName);
+    if (!sub) {
+      sub = centrifuge.newSubscription(channelName);
+    }
+
+    // 2. Handler saat ada pesan baru masuk via WebSocket
+    const handlePublication = (ctx: any) => {
+      const newMessage = ctx.data;
+      const incomingJid = (newMessage.jid || newMessage.data?.jid || '').toLowerCase();
+
+      // Pastikan pesan yang masuk berasal dari percakapan (JID) yang sedang dibuka
+      if (incomingJid && incomingJid === currentJid) {
+        const formattedMsg = {
+          _id: newMessage.id || newMessage.key?.id || new Date().getTime().toString(),
+          message: newMessage.text || newMessage.data?.text || '',
+          date: newMessage.timestamp || newMessage.data?.timestamp || new Date().toISOString(),
+          isMyMsg: newMessage.fromMe ?? newMessage.data?.fromMe ?? false,
+          msgType: newMessage.mediaType || 'text',
+          file: newMessage.mediaUrl,
+          sender: {
+            name:
+              newMessage.pushName ||
+              newMessage.data?.pushName ||
+              incomingJid.split('@')[0] ||
+              'Unknown',
+          },
+        };
+
+        // Append pesan baru ke state messages
+        setMessages((prev) => {
+          // Cegah pesan duplikat berdasarkan ID
+          const isExist = prev.some((m) => m._id === formattedMsg._id);
+          if (isExist) return prev;
+          return [...prev, formattedMsg];
+        });
+      }
+    };
+
+    // 3. Pasang listener
+    sub.on('publication', handlePublication);
+
+    if (sub.state === 'unsubscribed') {
+      sub.subscribe();
+    }
+
+    // 4. Cleanup saat komponen unmount atau JID berganti
+    return () => {
+      if (sub) {
+        sub.off('publication', handlePublication);
+      }
+    };
+  }, [centrifuge, jid]);
+
 
   // =========================================================
   // FETCH CHAT HISTORY
   // =========================================================
-
   useEffect(() => {
-
     const fetchChatHistory = async () => {
-
-      if (!jid) return;
+      if (!realJid) return;
 
       try {
-
         setLoading(true);
-
-        const baseUrl =
-          import.meta.env.VITE_API_CLIENT_URL ||
-          "http://localhost:8081";
-
-        const decodedJid =
-          decodeURIComponent(jid);
+        const baseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://localhost:8081";
 
         const response = await axios.get(
-          `${baseUrl}/chat/${encodeURIComponent(
-            decodedJid
-          )}?instance=wa-ninih`
+          `${baseUrl}/chat/${encodeURIComponent(realJid)}?instance=wa-ninih`
         );
-
 
         if (response.data?.success) {
 
@@ -178,24 +240,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
           setMessages(formattedMessages);
         }
-
       } catch (error) {
-
-        console.error(
-          "Gagal memuat riwayat pesan:",
-          error
-        );
-
+        console.error("Gagal memuat riwayat pesan:", error);
       } finally {
-
         setLoading(false);
       }
     };
 
-
     fetchChatHistory();
-
-  }, [jid]);
+  }, [realJid]);
 
 
   // =========================================================
