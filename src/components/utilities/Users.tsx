@@ -64,7 +64,7 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
 
             return (
               <div
-                key={chat.id || chat.jid}
+                key={chat.jid}
                 className="p-3 bg-[#202c33] hover:bg-[#2a3942] rounded-lg cursor-pointer transition-all border border-[#222d34] flex items-center gap-3"
               >
                 {/* Avatar / Gambar Profil */}
