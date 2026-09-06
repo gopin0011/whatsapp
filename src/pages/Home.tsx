@@ -53,19 +53,37 @@ const Home = () => {
 
       // 3. Jika pesan dari orang lain (fromMe = false), lakukan replace/update posisi teratas
       setLatestChats((prevChats) => {
-        const filteredChats = prevChats.filter(
-          (chat) => chat.jid.toLowerCase() !== incomingJid.toLowerCase()
+        const existingChat = prevChats.find(
+          (chat) =>
+            chat.jid.toLowerCase() === incomingJid.toLowerCase()
         );
 
-        // Pastikan struktur data konsisten
+        const messageText =
+          newMessage.text ||
+          newMessage.data?.text ||
+          existingChat?.text ||
+          '';
+
         const formattedMessage = {
           ...newMessage,
           jid: incomingJid,
-          text: newMessage.text || newMessage.data?.text || '',
-          pushName: newMessage.pushName || newMessage.data?.pushName || '',
-          timestamp: newMessage.timestamp || new Date().toISOString(),
+          text: messageText,
+          pushName:
+            newMessage.pushName ||
+            newMessage.data?.pushName ||
+            existingChat?.pushName ||
+            '',
+          timestamp:
+            newMessage.timestamp ||
+            existingChat?.timestamp ||
+            new Date().toISOString(),
           fromMe: false,
         };
+
+        const filteredChats = prevChats.filter(
+          (chat) =>
+            chat.jid.toLowerCase() !== incomingJid.toLowerCase()
+        );
 
         return [formattedMessage, ...filteredChats];
       });
