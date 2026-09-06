@@ -641,9 +641,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
                 )}
 
+                {/* VIDEO COMPONENT (LAZY LOADED ON CLICK) */}
+                {message.msgType === "video" && (
+                  <VideoMessage key={index} message={message} />
+                )}
 
                 {/* AUDIO */}
-
                 {(
                   message.msgType ===
                     "audio" ||
@@ -983,3 +986,69 @@ const ChatPage: React.FC<ChatPageProps> = ({
 export default React.memo(
   ChatPage
 );
+
+// Sub-komponen khusus Video agar render super cepat
+const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  const videoUrl = message.file?.startsWith("http")
+    ? message.file
+    : `${import.meta.env.VITE_API_CLIENT_URL || "http://localhost:8081"}${message.file}`;
+
+  const handlePlayClick = () => {
+    setIsPlaying(true);
+    setTimeout(() => {
+      if (videoRef.current) {
+        videoRef.current.play();
+      }
+    }, 50);
+  };
+
+  return (
+    <div className={`flex ${message.isMyMsg ? "justify-end" : "justify-start"} my-1`}>
+      <div
+        className={`relative w-[320px] sm:w-[380px] p-1.5 rounded-lg ${
+          message.isMyMsg ? "bg-[#005c4b]" : "bg-[#202c33]"
+        }`}
+      >
+        {!isPlaying ? (
+          /* TAMPILAN AWAL LEBIH BESAR (ASPECT VIDEO) */
+          <div
+            onClick={handlePlayClick}
+            className="relative w-full aspect-video bg-[#111b21] rounded-md flex items-center justify-center cursor-pointer group overflow-hidden border border-[#222d34]"
+          >
+            {/* Play Button */}
+            <div className="w-14 h-14 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-10 border border-white/20">
+              <div className="w-0 h-0 border-t-[9px] border-t-transparent border-l-[16px] border-l-white border-b-[9px] border-b-transparent ml-1" />
+            </div>
+
+            {/* Indicator Video */}
+            <span className="absolute bottom-2 right-2 bg-black/70 text-[11px] px-2 py-0.5 rounded text-white/80 font-medium">
+              Video
+            </span>
+          </div>
+        ) : (
+          /* SAAT DI-PLAY */
+          <video
+            ref={videoRef}
+            src={videoUrl}
+            controls
+            autoPlay
+            preload="auto"
+            className="w-full h-auto max-h-[400px] rounded-md object-contain bg-black"
+          >
+            Browser tidak mendukung video.
+          </video>
+        )}
+
+        {/* CAPTION (HANYA MUNCUL JIKA ADA) */}
+        {message.message && (
+          <p className="text-sm text-white px-1 pt-1.5 break-words">
+            {message.message}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+};
