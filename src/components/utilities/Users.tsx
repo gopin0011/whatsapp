@@ -29,6 +29,29 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
 
   const skeliton = new Array(8).fill(0);
 
+  const formatTime = (ts: string) => {
+    if (!ts) return '';
+
+    const date = new Date(ts);
+
+    return date.toLocaleTimeString('id-ID', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const formatDate = (ts: string) => {
+    if (!ts) return '';
+
+    const date = new Date(ts);
+
+    return date.toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
   return (
     <header className="w-full h-screen flex flex-col bg-[#111b21]">
       {/* Header */}
@@ -92,13 +115,20 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
 
                 {/* Content */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex justify-between items-center mb-0.5">
-                    <h4 className="font-semibold text-sm text-gray-200 truncate">
+                  <div className="flex justify-between items-start mb-0.5">
+                    <h4 className="font-semibold text-sm text-gray-200 truncate pr-2">
                       {title}
                     </h4>
-                    <span className="text-[10px] text-gray-400 flex-shrink-0 ml-2">
-                      {formatTimestamp(chat.timestamp)}
-                    </span>
+
+                    <div className="flex flex-col items-end flex-shrink-0 ml-2 leading-tight">
+                      <span className="text-[10px] text-gray-400">
+                        {formatTime(chat.timestamp)}
+                      </span>
+
+                      <span className="text-[9px] text-gray-500 mt-0.5">
+                        {formatDate(chat.timestamp)}
+                      </span>
+                    </div>
                   </div>
                   <p className="text-xs text-gray-400 truncate leading-relaxed">
                     {lastMessagePreview || (
