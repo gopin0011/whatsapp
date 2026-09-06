@@ -42,16 +42,16 @@ const Home = () => {
       const newMessage = ctx.data;
       console.log('Pesan baru dari websocket:', newMessage);
 
-      // 1. Ambil jid dan status fromMe
+      // 1. Ambil jid dan status fromMe secara dinamis
       const incomingJid = newMessage.jid || newMessage.data?.jid;
       const isFromMe = newMessage.fromMe ?? newMessage.data?.fromMe ?? false;
 
-      // 2. Jika pesan berasal dari diri sendiri (fromMe = true), abaikan / jangan replace
-      if (isFromMe || !incomingJid) {
+      // 2. Hanya cegah jika JID tidak valid (abaikan pengecekan isFromMe)
+      if (!incomingJid) {
         return;
       }
 
-      // 3. Jika pesan dari orang lain (fromMe = false), lakukan replace/update posisi teratas
+      // 3. Lakukan replace/update posisi teratas baik pesan masuk maupun keluar
       setLatestChats((prevChats) => {
         const existingChat = prevChats.find(
           (chat) =>
@@ -65,6 +65,7 @@ const Home = () => {
           '';
 
         const formattedMessage = {
+          ...existingChat, // Pertahankan data awal (seperti displayName/avatarUrl jika ada)
           ...newMessage,
           jid: incomingJid,
           text: messageText,
@@ -77,7 +78,7 @@ const Home = () => {
             newMessage.timestamp ||
             existingChat?.timestamp ||
             new Date().toISOString(),
-          fromMe: false,
+          fromMe: isFromMe, // Gunakan nilai dinamis dari payload
         };
 
         const filteredChats = prevChats.filter(
