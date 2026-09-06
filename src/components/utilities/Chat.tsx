@@ -1,64 +1,157 @@
 import React, { useEffect, useRef } from 'react';
-import ChatHeader from './ChatHeader'
-import MessageBar from './MessageBar'
-import ChatPage from './ChatPage'
+import ChatHeader from './ChatHeader';
+import MessageBar from './MessageBar';
+import ChatPage from './ChatPage';
 
 import { useSelector } from 'react-redux';
 import { RootState } from '../../Redux/store';
 import ContactInfo from '../../pages/ContactInfo';
 import MsgRecoder from './MsgRecoder';
 
+import { useLocation } from 'react-router-dom';
 
-const Chat = ({ handleSendOffer, handleOffer, rejectCall }: { handleSendOffer: () => void, handleOffer: () => void, rejectCall: () => void }) => {
+const Chat = ({
+  handleSendOffer,
+  handleOffer,
+  rejectCall
+}: {
+  handleSendOffer: () => void;
+  handleOffer: () => void;
+  rejectCall: () => void;
+}) => {
+
+  const location = useLocation();
+
+  const selectedChat = location.state?.chat;
+
   const chatPageRef = useRef<HTMLDivElement | null>(null);
-  const { friends, currentUserIndex } = useSelector((state: RootState) => state.msg);
-  const { isRecord } = useSelector((state: RootState) => state.features);
 
+  const { friends, currentUserIndex } = useSelector(
+    (state: RootState) => state.msg
+  );
 
+  const { isRecord } = useSelector(
+    (state: RootState) => state.features
+  );
 
+  // User yang sedang aktif
+  const currentUser = friends[currentUserIndex];
+
+  // =========================================================
+  // AUTO SCROLL
+  // =========================================================
   useEffect(() => {
-    if (chatPageRef.current) {
-      chatPageRef.current.scrollTop = chatPageRef.current.scrollHeight;
-    }
-  }, [friends, currentUserIndex]);
+    const container = chatPageRef.current;
+
+    if (!container) return;
+
+    requestAnimationFrame(() => {
+      container.scrollTop = container.scrollHeight;
+    });
+  }, [currentUserIndex, friends]);
+
+  // =========================================================
+  // SCROLL TO MESSAGE
+  // =========================================================
   const scrollToMessage = (messageId: string) => {
-    const messageElement = document.getElementById(`message-${messageId}`);
-    if (messageElement && chatPageRef.current) {
-      const chatWindowHeight = chatPageRef.current.clientHeight;
-      const messageHeight = messageElement.clientHeight;
-      const messageTop = messageElement.offsetTop;
+    const messageElement = document.getElementById(
+      `message-${messageId}`
+    );
 
-      // Calculate the desired scroll position to center the message
-      const scrollToPosition = messageTop - (chatWindowHeight - messageHeight) / 2;
+    const container = chatPageRef.current;
 
-      chatPageRef.current.scrollTo({
-        top: scrollToPosition,
-        behavior: 'smooth',
-      });
-      messageElement.style.backgroundColor = 'rgba(135, 206, 250, 0.2)';
-      setTimeout(() => {
-        messageElement.style.transition = 'background-color 0.5s ease opacity 0.5s ease';
-        messageElement.style.backgroundColor = '';
-      }, 1000);
-    }
+    if (!messageElement || !container) return;
+
+    const chatWindowHeight = container.clientHeight;
+    const messageHeight = messageElement.clientHeight;
+    const messageTop = messageElement.offsetTop;
+
+    const scrollToPosition =
+      messageTop -
+      (chatWindowHeight - messageHeight) / 2;
+
+    container.scrollTo({
+      top: scrollToPosition,
+      behavior: 'smooth',
+    });
+
+    messageElement.style.backgroundColor =
+      'rgba(135, 206, 250, 0.2)';
+
+    setTimeout(() => {
+      messageElement.style.transition =
+        'background-color 0.5s ease, opacity 0.5s ease';
+
+      messageElement.style.backgroundColor = '';
+    }, 1000);
   };
-  // absolute top-0 left-0 right-0 bottom-0
 
   return (
-    <>
-      <div className=' h-screen flex flex-col backImg bg-black'>
-        <ChatHeader handleSendOffer={handleSendOffer} />
-        <div className='h-full overflow-y-auto custom-scrollbar bg-black bg-opacity-80 scroll-smoothS' ref={chatPageRef}>
-          <ChatPage rejectCall={rejectCall} handleOffer={handleOffer} scrollToMessage={scrollToMessage} />
-        </div>
-        {
-          isRecord === false ? <MessageBar  /> : <MsgRecoder />
-        }
+    <div
+      className="
+        h-screen
+        min-h-0
+        w-full
+        flex
+        flex-col
+        backImg
+        bg-black
+        overflow-hidden
+      "
+    >
 
-        <ContactInfo />
+      {/* =====================================================
+          CHAT HEADER
+      ===================================================== */}
+      <div className="flex-none w-full">
+        <ChatHeader
+          handleSendOffer={handleSendOffer}
+          chat={selectedChat}
+        />
       </div>
-    </>
-  )
-}
 
-export default React.memo(Chat)
+      {/* =====================================================
+          CHAT AREA
+      ===================================================== */}
+      <div
+        ref={chatPageRef}
+        className="
+          flex-1
+          min-h-0
+          w-full
+          overflow-y-auto
+          overflow-x-hidden
+          custom-scrollbar
+          bg-black
+          bg-opacity-80
+          scroll-smooth
+        "
+      >
+        <ChatPage
+          rejectCall={rejectCall}
+          handleOffer={handleOffer}
+          scrollToMessage={scrollToMessage}
+        />
+      </div>
+
+      {/* =====================================================
+          MESSAGE BAR
+      ===================================================== */}
+      <div className="flex-none w-full bg-[#202c33]">
+        {isRecord === false ? (
+          <MessageBar />
+        ) : (
+          <MsgRecoder />
+        )}
+      </div>
+
+      {/* =====================================================
+          CONTACT INFO
+      ===================================================== */}
+      <ContactInfo />
+
+    </div>
+  );
+};
+
+export default React.memo(Chat);

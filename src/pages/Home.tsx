@@ -8,18 +8,26 @@ const Home = () => {
   const [latestChats, setLatestChats] = useState<any[]>([]);
   const [isFetchingChats, setIsFetchingChats] = useState(false);
 
-  // Panggil socket & status koneksi via Hook
-  const { centrifuge, isConnected } = useSocket();
+  const { centrifuge } = useSocket();
 
-  // 1. Fetch REST API untuk Data Awal
+  // =========================================================
+  // FETCH CHAT AWAL
+  // =========================================================
   useEffect(() => {
     const fetchLatestChats = async () => {
       try {
         setIsFetchingChats(true);
-        const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
-        const response = await axios.get(`${baseUrl}/getChat/wa-ninih`);
+
+        const baseUrl =
+          import.meta.env.VITE_API_CLIENT_URL ||
+          'http://localhost:8081';
+
+        const response = await axios.get(
+          `${baseUrl}/getChat/wa-ninih`
+        );
+
         if (response.data?.success) {
-          setLatestChats(response.data.data);
+          setLatestChats(response.data.data || []);
         }
       } catch (error) {
         console.error('Gagal mengambil data chat:', error);
@@ -32,30 +40,42 @@ const Home = () => {
     fetchLatestChats();
   }, []);
 
-  // 2. Real-time Subscription via Centrifugo
+  // =========================================================
+  // REALTIME CENTRIFUGO
+  // =========================================================
   useEffect(() => {
     if (!centrifuge) return;
 
-    const sub = centrifuge.newSubscription('whatsapp:messages');
+    const sub = centrifuge.newSubscription(
+      'whatsapp:messages'
+    );
 
     sub.on('publication', (ctx) => {
       const newMessage = ctx.data;
-      console.log('Pesan baru dari websocket:', newMessage);
 
-      // 1. Ambil jid dan status fromMe secara dinamis
-      const incomingJid = newMessage.jid || newMessage.data?.jid;
-      const isFromMe = newMessage.fromMe ?? newMessage.data?.fromMe ?? false;
+      console.log(
+        'Pesan baru dari websocket:',
+        newMessage
+      );
 
-      // 2. Hanya cegah jika JID tidak valid (abaikan pengecekan isFromMe)
+      const incomingJid =
+        newMessage.jid ||
+        newMessage.data?.jid;
+
+      const isFromMe =
+        newMessage.fromMe ??
+        newMessage.data?.fromMe ??
+        false;
+
       if (!incomingJid) {
         return;
       }
 
-      // 3. Lakukan replace/update posisi teratas baik pesan masuk maupun keluar
       setLatestChats((prevChats) => {
         const existingChat = prevChats.find(
           (chat) =>
-            chat.jid.toLowerCase() === incomingJid.toLowerCase()
+            chat.jid?.toLowerCase() ===
+            incomingJid.toLowerCase()
         );
 
         const messageText =
@@ -65,28 +85,63 @@ const Home = () => {
           '';
 
         const formattedMessage = {
-          ...existingChat, // Pertahankan data awal (seperti displayName/avatarUrl jika ada)
+          // Pertahankan semua data chat lama
+          ...existingChat,
+
+          // Data websocket terbaru
           ...newMessage,
+
+          // Data utama
           jid: incomingJid,
+
           text: messageText,
+
+          // DISPLAY NAME
+          display_name:
+            newMessage.display_name ||
+            newMessage.data?.display_name ||
+            existingChat?.display_name ||
+            newMessage.pushName ||
+            newMessage.data?.pushName ||
+            existingChat?.pushName ||
+            '',
+
+          // AVATAR
+          profile:
+            newMessage.profile ||
+            newMessage.data?.profile ||
+            existingChat?.profile ||
+            existingChat?.avatar ||
+            newMessage.avatar ||
+            newMessage.data?.avatar ||
+            '',
+
+          // Push name tetap dipertahankan
           pushName:
             newMessage.pushName ||
             newMessage.data?.pushName ||
             existingChat?.pushName ||
             '',
+
           timestamp:
             newMessage.timestamp ||
+            newMessage.data?.timestamp ||
             existingChat?.timestamp ||
             new Date().toISOString(),
-          fromMe: isFromMe, // Gunakan nilai dinamis dari payload
+
+          fromMe: isFromMe,
         };
 
         const filteredChats = prevChats.filter(
           (chat) =>
-            chat.jid.toLowerCase() !== incomingJid.toLowerCase()
+            chat.jid?.toLowerCase() !==
+            incomingJid.toLowerCase()
         );
 
-        return [formattedMessage, ...filteredChats];
+        return [
+          formattedMessage,
+          ...filteredChats,
+        ];
       });
     });
 
@@ -99,8 +154,11 @@ const Home = () => {
   }, [centrifuge]);
 
   return (
-    <main className="overflow-hidden relative h-screen">
-      <Users latestChats={latestChats} isFetching={isFetchingChats} />
+    <main className="relative h-screen min-h-0 overflow-hidden bg-black">
+      <Users
+        latestChats={latestChats}
+        isFetching={isFetchingChats}
+      />
     </main>
   );
 };

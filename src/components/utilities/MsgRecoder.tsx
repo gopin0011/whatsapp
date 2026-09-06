@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useRef, useContext } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { MdDelete, MdSend } from "react-icons/md";
 import { FaRegPauseCircle, FaPlay, FaMicrophone, FaPause } from "react-icons/fa";
 import useWaveSurfer from "../reuse/WaveSurfer";
@@ -9,17 +8,15 @@ import { AppDispatch, RootState } from '../../Redux/store';
 import { toggleisRecord } from '../../Redux/reducers/utils/Features';
 import { toast } from 'react-toastify';
 import { handleSendMessage, IMessage } from '../../Redux/reducers/msg/MsgReducer';
-import { SocketContext } from "../../App";
 import WaveformVisualizer from './WaveForm';
 
 const MsgRecoder = () => {
     const { friends, currentUserIndex } = useSelector((state: RootState) => state.msg);
-    const { user } = useSelector((state: RootState) => state.auth)
-    const socket = useContext(SocketContext);
+    const { user } = useSelector((state: RootState) => state.auth);
 
     const dispatch: AppDispatch = useDispatch();
-    const [fileUrl, setFileUrl] = useState<null | string>(null)
-    const [blobData, setBlobData] = useState<null | Blob>(null)
+    const [fileUrl, setFileUrl] = useState<null | string>(null);
+    const [blobData, setBlobData] = useState<null | Blob>(null);
     const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
     const [recordingTime, setRecordingTime] = useState(0);
     const waveRef = useRef<HTMLDivElement | null>(null);
@@ -45,8 +42,8 @@ const MsgRecoder = () => {
     }, [fileUrl, isRecording, wavesurferObj]);
 
     useEffect(() => {
-        handleStartRecording()
-    }, [])
+        handleStartRecording();
+    }, []);
 
     const handleStartRecording = async () => {
         try {
@@ -61,7 +58,7 @@ const MsgRecoder = () => {
             };
             recorder.onstop = () => {
                 const blob = new Blob(chunks, { type: 'audio/ogg; codecs=opus' });
-                setBlobData(blob)
+                setBlobData(blob);
                 const audioUrl = URL.createObjectURL(blob);
                 setFileUrl(audioUrl);
                 stream.getTracks().forEach(track => track.stop());
@@ -70,12 +67,12 @@ const MsgRecoder = () => {
             recorder.start();
             setMediaRecorder(recorder);
         } catch (error: any) {
-            toast.error(error.message)
+            toast.error(error.message);
         }
     };
 
     useEffect(() => {
-        let timer: any
+        let timer: any;
         if (isRecording) {
             timer = setInterval(() => {
                 setRecordingTime(prevTime => prevTime + 1);
@@ -89,7 +86,7 @@ const MsgRecoder = () => {
             setIsRecording(false);
             wavesurferObj?.stop();
             mediaRecorder.stop();
-            setShowWaveform(true); // Show waveform when recording stops
+            setShowWaveform(true); // Tampilkan waveform saat perekaman selesai
         }
     };
 
@@ -110,19 +107,22 @@ const MsgRecoder = () => {
         }
 
         if (!blobData) {
-            toast.error("No recording to send");
+            toast.error("Tidak ada rekaman untuk dikirim");
             return;
         }
 
         dispatch(toggleisRecord(false));
         const base64 = await convertBlobToBase64(blobData) as string;
+        
+        const currentFriend = friends[currentUserIndex];
+
         const serializedValues: IMessage = {
             message: 'audio',
-            conn_type: friends[currentUserIndex].conn_type as "group" | "onetoone",
+            conn_type: currentFriend?.conn_type as "group" | "onetoone",
             date: new Date().toISOString(),
             isMyMsg: true,
             msgType: 'audio',
-            room_id: friends[currentUserIndex].room_id,
+            room_id: currentFriend?.room_id,
             file: base64,
             seen: false,
             send: false,
@@ -133,11 +133,11 @@ const MsgRecoder = () => {
                 name: user?.name
             }
         };
+
+        // Simpan rekaman audio ke state Redux lokal
         dispatch(handleSendMessage(serializedValues));
-        socket.emit("send_message", serializedValues, (ack: any) => {
-            dispatch(handleSendMessage(ack));
-        });
-        // Reset state after sending
+
+        // Reset state setelah pengiriman
         setFileUrl(null);
         setBlobData(null);
         setRecordingTime(0);
@@ -159,50 +159,46 @@ const MsgRecoder = () => {
                 <MdDelete title="delete" size={25} className="group-hover:text-[#e9edef]" />
             </button>
 
-            <div className=''>
-                <div className={`${showWaveform ? "flex" : "block"}  w-[300px] bg-[#111b21] gap-2 rounded-full px-4 `}>
-                    {
-                        isRecording ? (
-                            <div id="recording" className='flex justify-center gap-3 items-center'>
-                                <div className='font-Rubik text-sm'>
-                                    {formatTime(recordingTime)}
-                                </div>
-                                <WaveformVisualizer isRecording={isRecording} stream={audioStream} />
+            <div>
+                <div className={`${showWaveform ? "flex" : "block"} w-[300px] bg-[#111b21] gap-2 rounded-full px-4`}>
+                    {isRecording ? (
+                        <div id="recording" className='flex justify-center gap-3 items-center'>
+                            <div className='font-Rubik text-sm'>
+                                {formatTime(recordingTime)}
                             </div>
-                        ) : (
-                            <div className=' flex justify-center gap-3 items-center  '>
-                                {isPlaying ? (
-                                    <button onClick={handlePauseRecording}>
-                                        <FaPause title="pause Record" />
-                                    </button>
-                                ) : (
-                                    <button onClick={handlePlayRecording}>
-                                        <FaPlay title="play Record" />
-                                    </button>
-                                )}
-                                <div className='font-Rubik text-sm'>
-                                    {formatTime(currentPlaybackTime)}
-                                </div>
+                            <WaveformVisualizer isRecording={isRecording} stream={audioStream} />
+                        </div>
+                    ) : (
+                        <div className='flex justify-center gap-3 items-center'>
+                            {isPlaying ? (
+                                <button onClick={handlePauseRecording}>
+                                    <FaPause title="pause Record" />
+                                </button>
+                            ) : (
+                                <button onClick={handlePlayRecording}>
+                                    <FaPlay title="play Record" />
+                                </button>
+                            )}
+                            <div className='font-Rubik text-sm'>
+                                {formatTime(currentPlaybackTime)}
                             </div>
-                        )
-
-                    }
+                        </div>
+                    )}
                     <div id='waveform' ref={waveRef} className={`w-full ${showWaveform ? 'block' : 'hidden'}`} />
                 </div>
-
             </div>
-            {
-                isRecording ? (
-                    <button onClick={handleStopRecording} className='icons p-3'>
-                        <FaRegPauseCircle title="stop Record" className="text-red-500" size={25} />
-                    </button>
-                ) : (
-                    <button onClick={handleStartRecording} className="icons p-3">
-                        <FaMicrophone title="start Record" className="text-red-500" size={25} />
-                    </button>
-                )
-            }
-            <button onClick={sendRecording} className="icons p-3 bg-[#00a884]" type="submit" >
+
+            {isRecording ? (
+                <button onClick={handleStopRecording} className='icons p-3'>
+                    <FaRegPauseCircle title="stop Record" className="text-red-500" size={25} />
+                </button>
+            ) : (
+                <button onClick={handleStartRecording} className="icons p-3">
+                    <FaMicrophone title="start Record" className="text-red-500" size={25} />
+                </button>
+            )}
+
+            <button onClick={sendRecording} className="icons p-3 bg-[#00a884]" type="submit">
                 <MdSend title="send" />
             </button>
         </div>

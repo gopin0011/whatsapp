@@ -1,8 +1,8 @@
 import React from 'react';
 import { Users as GroupIcon, User as UserIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import UserSkeliton from '../reuse/UserSkeliton';
 
-// Interface diperbarui sesuai dengan payload JSON dari backend JOIN
 interface ChatItem {
   id?: string;
   instance: string;
@@ -20,20 +20,21 @@ interface UsersProps {
   isFetching?: boolean;
 }
 
-const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) => {
-  const formatTimestamp = (ts: string) => {
-    if (!ts) return '';
-    const date = new Date(ts);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const Users: React.FC<UsersProps> = ({
+  latestChats = [],
+  isFetching = false,
+}) => {
+  const navigate = useNavigate();
+
+  const handleChatClick = (chat: ChatItem) => {
+    navigate(`/chat/${encodeURIComponent(chat.jid)}`);
   };
 
   const skeliton = new Array(8).fill(0);
 
   const formatTime = (ts: string) => {
     if (!ts) return '';
-
     const date = new Date(ts);
-
     return date.toLocaleTimeString('id-ID', {
       hour: '2-digit',
       minute: '2-digit',
@@ -42,9 +43,7 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
 
   const formatDate = (ts: string) => {
     if (!ts) return '';
-
     const date = new Date(ts);
-
     return date.toLocaleDateString('id-ID', {
       day: '2-digit',
       month: 'short',
@@ -56,7 +55,9 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
     <header className="w-full h-screen flex flex-col bg-[#111b21]">
       {/* Header */}
       <div className="px-4 py-3 border-b border-[#222d34]">
-        <h1 className="text-xl font-semibold text-white">Chats</h1>
+        <h1 className="text-xl font-semibold text-white">
+          Chats
+        </h1>
       </div>
 
       {/* List Chat */}
@@ -64,22 +65,19 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
         {isFetching ? (
           <div>
             {skeliton.map((_, index) => (
-              <UserSkeliton key={index} />
+              <UserSkeliton key="{index}"/>
             ))}
           </div>
         ) : latestChats.length > 0 ? (
           latestChats.map((chat) => {
             const isGroup = chat.jid.endsWith('@g.us');
 
-            // 1. Prioritas Nama: displayName backend -> pushName -> Fallback Nomor JID
             const title =
               chat.displayName ||
               chat.contactName ||
               chat.pushName ||
               chat.jid.split('@')[0];
 
-            // 2. Preview Pesan Terakhir Ala WA Web:
-            // Jika di Group dan ada pushName pengirim, tampilkan "Nama: Pesan..."
             const lastMessagePreview =
               isGroup && chat.pushName
                 ? `${chat.pushName}: ${chat.text}`
@@ -88,9 +86,19 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
             return (
               <div
                 key={chat.jid}
-                className="p-3 bg-[#202c33] hover:bg-[#2a3942] rounded-lg cursor-pointer transition-all border border-[#222d34] flex items-center gap-3"
+                onClick={() => handleChatClick(chat)}
+                className="
+                  p-3
+                  bg-[#202c33]
+                  hover:bg-[#2a3942]
+                  rounded-lg
+                  cursor-pointer
+                  transition-all
+                  border border-[#222d34]
+                  flex items-center gap-3
+                "
               >
-                {/* Avatar / Gambar Profil */}
+                {/* Avatar */}
                 {chat.avatarUrl ? (
                   <img
                     src={chat.avatarUrl}
@@ -106,9 +114,9 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
                     }`}
                   >
                     {isGroup ? (
-                      <GroupIcon className="w-5 h-5" />
+                      <GroupIcon className="w-5 h-5"/>
                     ) : (
-                      <UserIcon className="w-5 h-5" />
+                      <UserIcon className="w-5 h-5"/>
                     )}
                   </div>
                 )}
@@ -124,15 +132,17 @@ const Users: React.FC<UsersProps> = ({ latestChats = [], isFetching = false }) =
                       <span className="text-[10px] text-gray-400">
                         {formatTime(chat.timestamp)}
                       </span>
-
                       <span className="text-[9px] text-gray-500 mt-0.5">
                         {formatDate(chat.timestamp)}
                       </span>
                     </div>
                   </div>
+
                   <p className="text-xs text-gray-400 truncate leading-relaxed">
                     {lastMessagePreview || (
-                      <span className="italic text-gray-500">[Media/Gambar]</span>
+                      <span className="italic text-gray-500">
+                        [Media/Gambar]
+                      </span>
                     )}
                   </p>
                 </div>

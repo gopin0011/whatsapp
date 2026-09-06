@@ -3,7 +3,8 @@ import 'react-toastify/dist/ReactToastify.css';
 import { ToastContainer } from "react-toastify";
 import { Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
-import { SocketProvider } from "./context/SocketContext"; // Import Provider baru
+import Chat from './components/utilities/Chat';
+import { SocketProvider } from "./context/SocketContext";
 
 const App = () => {
   return (
@@ -24,7 +25,17 @@ const App = () => {
       <SocketProvider>
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route path="*" element={<Home />} />
+
+          <Route
+            path="/chat/:jid"
+            element={
+              <Chat
+                handleSendOffer={() => {}}
+                handleOffer={() => {}}
+                rejectCall={() => {}}
+              />
+            }
+          />
         </Routes>
       </SocketProvider>
     </>
