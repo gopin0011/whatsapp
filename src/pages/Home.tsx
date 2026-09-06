@@ -11,7 +11,8 @@ const Home = () => {
     const fetchLatestChats = async () => {
       try {
         setIsFetchingChats(true)
-        const response = await axios.get('http://localhost:8081/getChat/wa-ninih')
+        const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
+        const response = await axios.get(`${baseUrl}/getChat/wa-ninih`);
         if (response.data?.success) {
           setLatestChats(response.data.data)
         }
