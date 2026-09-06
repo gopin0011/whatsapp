@@ -4,6 +4,7 @@ import utilReducer from "./reducers/utils/utilReducer"
 import featureReducer from "./reducers/utils/Features"
 import callsReducer from "./reducers/Calls/CallsReducer"
 import msgReducer from "./reducers/msg/MsgReducer"
+import chatReducer from "./reducers/chat/chatSlice";
 
 const Store = configureStore({
     reducer: {
@@ -11,7 +12,8 @@ const Store = configureStore({
         utils: utilReducer,
         features: featureReducer,
         msg: msgReducer,
-        calls: callsReducer
+        calls: callsReducer,
+        chat: chatReducer,
     }
 })
 

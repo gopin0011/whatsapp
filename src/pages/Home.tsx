@@ -2,29 +2,23 @@ import React, { useEffect, useState } from 'react';
 import Users from '../components/utilities/Users';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { useSocket } from '../context/SocketContext';
+import { useSelector, useDispatch } from 'react-redux';
+import { RootState } from '../Redux/store'; // Sesuaikan path
 
 const Home = () => {
   const [latestChats, setLatestChats] = useState<any[]>([]);
   const [isFetchingChats, setIsFetchingChats] = useState(false);
 
-  const { centrifuge } = useSocket();
+  // Ambil cache chat dari Redux
+  const chatCache = useSelector((state: RootState) => state.chat.byJid);
 
-  // =========================================================
-  // FETCH CHAT AWAL
-  // =========================================================
+  // FETCH CHAT AWAL DARI BACKEND
   useEffect(() => {
     const fetchLatestChats = async () => {
       try {
         setIsFetchingChats(true);
-
-        const baseUrl =
-          import.meta.env.VITE_API_CLIENT_URL ||
-          'http://localhost:8081';
-
-        const response = await axios.get(
-          `${baseUrl}/getChat/wa-ninih`
-        );
+        const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
+        const response = await axios.get(`${baseUrl}/getChat/wa-ninih`);
 
         if (response.data?.success) {
           setLatestChats(response.data.data || []);
@@ -40,109 +34,46 @@ const Home = () => {
     fetchLatestChats();
   }, []);
 
-  // =========================================================
-  // REALTIME CENTRIFUGO
-  // =========================================================
+  // KETIKA ADA PESAN BARU MASUK DI REDUX -> UPDATE TAMPILAN DAFTAR USER
   useEffect(() => {
-    if (!centrifuge) return;
+    // Kueri pesan terbaru dari Redux Cache untuk memperbarui daftar kontak di Home
+    setLatestChats((prevChats) => {
+      let updatedChats = [...prevChats];
 
-    const channelName = 'whatsapp:messages';
+      Object.keys(chatCache).forEach((jid) => {
+        const messages = chatCache[jid];
+        if (!messages || messages.length === 0) return;
 
-    // 1. Cek apakah subscription sudah ada sebelumnya
-    let sub = centrifuge.getSubscription(channelName);
+        const lastMsg = messages[messages.length - 1];
+        const raw = lastMsg.raw || {};
 
-    // 2. Jika belum ada, baru buat subscription baru
-    if (!sub) {
-      sub = centrifuge.newSubscription(channelName);
-    }
-
-    // Handlers
-    const handlePublication = (ctx: any) => {
-      const newMessage = ctx.data;
-
-      console.log('Pesan baru dari websocket:', newMessage);
-
-      const incomingJid = newMessage.jid || newMessage.data?.jid;
-      const isFromMe = newMessage.fromMe ?? newMessage.data?.fromMe ?? false;
-
-      if (!incomingJid) return;
-
-      setLatestChats((prevChats) => {
-        const existingChat = prevChats.find(
-          (chat) => chat.jid?.toLowerCase() === incomingJid.toLowerCase()
+        const existingIndex = updatedChats.findIndex(
+          (c) => c.jid?.toLowerCase() === jid.toLowerCase()
         );
 
-        const messageText =
-          newMessage.text ||
-          newMessage.data?.text ||
-          existingChat?.text ||
-          '';
-
-        const formattedMessage = {
-          ...existingChat,
-          ...newMessage,
-          jid: incomingJid,
-          text: messageText,
-          display_name:
-            newMessage.display_name ||
-            newMessage.data?.display_name ||
-            existingChat?.display_name ||
-            newMessage.pushName ||
-            newMessage.data?.pushName ||
-            existingChat?.pushName ||
-            '',
-          profile:
-            newMessage.profile ||
-            newMessage.data?.profile ||
-            existingChat?.profile ||
-            existingChat?.avatar ||
-            newMessage.avatar ||
-            newMessage.data?.avatar ||
-            '',
-          pushName:
-            newMessage.pushName ||
-            newMessage.data?.pushName ||
-            existingChat?.pushName ||
-            '',
-          timestamp:
-            newMessage.timestamp ||
-            newMessage.data?.timestamp ||
-            existingChat?.timestamp ||
-            new Date().toISOString(),
-          fromMe: isFromMe,
+        const updatedItem = {
+          ...(existingIndex >= 0 ? updatedChats[existingIndex] : {}),
+          jid: jid,
+          text: lastMsg.message,
+          timestamp: lastMsg.date,
+          fromMe: lastMsg.isMyMsg,
+          pushName: lastMsg.sender?.name,
+          display_name: raw.display_name || lastMsg.sender?.name || jid.split('@')[0],
         };
 
-        const filteredChats = prevChats.filter(
-          (chat) => chat.jid?.toLowerCase() !== incomingJid.toLowerCase()
-        );
-
-        return [formattedMessage, ...filteredChats];
+        if (existingIndex >= 0) {
+          updatedChats.splice(existingIndex, 1);
+        }
+        updatedChats.unshift(updatedItem);
       });
-    };
 
-    // Pasang listener dan jalankan subscribe jika belum aktif
-    sub.on('publication', handlePublication);
-
-    if (sub.state === 'unsubscribed') {
-      sub.subscribe();
-    }
-
-    // Cleanup saat komponen unmount
-    return () => {
-      if (sub) {
-        sub.off('publication', handlePublication);
-        // Lepas/unsubscribe subscription dari instance centrifuge
-        sub.unsubscribe();
-      }
-    };
-  }, [centrifuge]);
+      return updatedChats;
+    });
+  }, [chatCache]);
 
   return (
     <main className="relative h-screen min-h-0 overflow-hidden bg-black">
-      <Users
-        latestChats={latestChats}
-        isFetching={isFetchingChats}
-      />
+      <Users latestChats={latestChats} isFetching={isFetchingChats} />
     </main>
   );
 };

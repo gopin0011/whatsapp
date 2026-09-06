@@ -42,13 +42,12 @@ import Audio from "./Audio";
 import IncomingCall from "../cards/IncommingCall";
 
 import { ChevronDown } from "lucide-react";
-import { useSocket } from "../../context/SocketContext";
+import { setChatHistory } from "../../Redux/reducers/chat/chatSlice";
 
 const getRandomColors = (
   count: number,
   recieveColors: Record<string, string>
 ): string[] => {
-
   const colors = Object.keys(recieveColors);
   const result: string[] = [];
 
@@ -64,13 +63,11 @@ const getRandomColors = (
   return result;
 };
 
-
 interface ChatPageProps {
   scrollToMessage?: (messageId: string) => void;
   handleOffer?: () => void;
   rejectCall?: () => void;
 }
-
 
 interface ChatLocationState {
   jid?: string;
@@ -80,14 +77,12 @@ interface ChatLocationState {
   avatar?: string;
 }
 
-
 const ChatPage: React.FC<ChatPageProps> = ({
   scrollToMessage = () => {},
   handleOffer = () => {},
   rejectCall = () => {},
 }) => {
-
-  const dispatch: AppDispatch = useDispatch();
+  const dispatch = useDispatch();
 
   const { jid } = useParams<{ jid: string }>();
 
@@ -96,18 +91,23 @@ const ChatPage: React.FC<ChatPageProps> = ({
     try {
       return atob(jid); // Mengubah "MTIzQGcudXM=" kembali jadi "123@g.us"
     } catch (e) {
-      // Fallback jika URL tidak ter-encode dengan benar
       return jid; 
     }
   }, [jid]);
+
+  const currentJidKey = useMemo(() => realJid.toLowerCase(), [realJid]);
 
   const location = useLocation();
 
   const chatState =
     (location.state as ChatLocationState | null) || null;
 
+  // =========================================================
+  // AMBIL PESAN LANGSUNG DARI REDUX CACHE
+  // =========================================================
+  const chatCache = useSelector((state: RootState) => state.chat.byJid);
+  const messages = chatCache[currentJidKey] || [];
 
-  const [messages, setMessages] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
   const chatContentRef =
@@ -115,7 +115,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const [showScrollButton, setShowScrollButton] =
     useState(false);
-
 
   const {
     showAttachFiles,
@@ -129,79 +128,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
     (state: RootState) => state.auth
   );
 
-  const { centrifuge } = useSocket(); 
-
   // =========================================================
-  // REALTIME CENTRIFUGO UNTUK CHAT PAGE
-  // =========================================================
-  useEffect(() => {
-    if (!centrifuge || !jid) return;
-
-    const channelName = 'whatsapp:messages';
-    const currentJid = decodeURIComponent(jid).toLowerCase();
-
-    // 1. Cek atau buat subscription
-    let sub = centrifuge.getSubscription(channelName);
-    if (!sub) {
-      sub = centrifuge.newSubscription(channelName);
-    }
-
-    // 2. Handler saat ada pesan baru masuk via WebSocket
-    const handlePublication = (ctx: any) => {
-      const newMessage = ctx.data;
-      const incomingJid = (newMessage.jid || newMessage.data?.jid || '').toLowerCase();
-
-      // Pastikan pesan yang masuk berasal dari percakapan (JID) yang sedang dibuka
-      if (incomingJid && incomingJid === currentJid) {
-        const formattedMsg = {
-          _id: newMessage.id || newMessage.key?.id || new Date().getTime().toString(),
-          message: newMessage.text || newMessage.data?.text || '',
-          date: newMessage.timestamp || newMessage.data?.timestamp || new Date().toISOString(),
-          isMyMsg: newMessage.fromMe ?? newMessage.data?.fromMe ?? false,
-          msgType: newMessage.mediaType || 'text',
-          file: newMessage.mediaUrl,
-          sender: {
-            name:
-              newMessage.pushName ||
-              newMessage.data?.pushName ||
-              incomingJid.split('@')[0] ||
-              'Unknown',
-          },
-        };
-
-        // Append pesan baru ke state messages
-        setMessages((prev) => {
-          // Cegah pesan duplikat berdasarkan ID
-          const isExist = prev.some((m) => m._id === formattedMsg._id);
-          if (isExist) return prev;
-          return [...prev, formattedMsg];
-        });
-      }
-    };
-
-    // 3. Pasang listener
-    sub.on('publication', handlePublication);
-
-    if (sub.state === 'unsubscribed') {
-      sub.subscribe();
-    }
-
-    // 4. Cleanup saat komponen unmount atau JID berganti
-    return () => {
-      if (sub) {
-        sub.off('publication', handlePublication);
-      }
-    };
-  }, [centrifuge, jid]);
-
-
-  // =========================================================
-  // FETCH CHAT HISTORY
+  // FETCH CHAT HISTORY (HANYA JIKA DIBUTUHKAN)
   // =========================================================
   useEffect(() => {
     const fetchChatHistory = async () => {
       if (!realJid) return;
 
+      // 1. Jika data pesan untuk JID ini sudah ada di Redux Cache, lewati fetch API!
+      if (chatCache[currentJidKey] && chatCache[currentJidKey].length > 0) {
+        setLoading(false);
+        return;
+      }
+
+      // 2. Jika data belum ada, lakukan fetch ke backend API
       try {
         setLoading(true);
         const baseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://localhost:8081";
@@ -211,34 +151,23 @@ const ChatPage: React.FC<ChatPageProps> = ({
         );
 
         if (response.data?.success) {
+          const formattedMessages = response.data.data.map((chat: any) => ({
+            _id: chat.id,
+            message: chat.text,
+            date: chat.timestamp,
+            isMyMsg: chat.fromMe,
+            msgType: chat.mediaType || "text",
+            file: chat.mediaUrl,
+            sender: {
+              name:
+                chat.pushName ||
+                chat.jid?.split("@")[0] ||
+                "Unknown",
+            },
+          }));
 
-          const formattedMessages =
-            response.data.data.map(
-              (chat: any) => ({
-                _id: chat.id,
-
-                message: chat.text,
-
-                date: chat.timestamp,
-
-                isMyMsg: chat.fromMe,
-
-                msgType:
-                  chat.mediaType || "text",
-
-                file: chat.mediaUrl,
-
-                sender: {
-                  name:
-                    chat.pushName ||
-                    chat.jid?.split("@")[0] ||
-                    "Unknown",
-                },
-              })
-            );
-
-
-          setMessages(formattedMessages);
+          // Simpan riwayat chat ke Redux Store
+          dispatch(setChatHistory({ jid: realJid, messages: formattedMessages }));
         }
       } catch (error) {
         console.error("Gagal memuat riwayat pesan:", error);
@@ -248,38 +177,27 @@ const ChatPage: React.FC<ChatPageProps> = ({
     };
 
     fetchChatHistory();
-  }, [realJid]);
-
+  }, [realJid, currentJidKey, dispatch]);
 
   // =========================================================
   // AMBIL SCROLL CONTAINER MILIK CHAT.TSX
   // =========================================================
-
   const getScrollContainer = () => {
-
     return chatContentRef.current
       ?.parentElement as HTMLDivElement | null;
-
   };
-
 
   // =========================================================
   // AUTO SCROLL KE PESAN PALING BAWAH
   // =========================================================
-
   useEffect(() => {
-
     if (!messages.length) return;
 
     requestAnimationFrame(() => {
-
-      const container =
-        getScrollContainer();
-
+      const container = getScrollContainer();
       if (!container) return;
 
       requestAnimationFrame(() => {
-
         container.scrollTo({
           top: container.scrollHeight,
           behavior: "auto",
@@ -287,186 +205,113 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
         setShowScrollButton(false);
       });
-
     });
-
   }, [messages, jid]);
-
 
   // =========================================================
   // DETEKSI POSISI SCROLL
   // =========================================================
-
   useEffect(() => {
-
-    const container =
-      getScrollContainer();
-
+    const container = getScrollContainer();
     if (!container) return;
 
-
     const handleScroll = () => {
-
       const distanceFromBottom =
         container.scrollHeight -
         container.scrollTop -
         container.clientHeight;
 
-      setShowScrollButton(
-        distanceFromBottom > 300
-      );
+      setShowScrollButton(distanceFromBottom > 300);
     };
 
-
-    container.addEventListener(
-      "scroll",
-      handleScroll
-    );
-
+    container.addEventListener("scroll", handleScroll);
     handleScroll();
 
-
     return () => {
-
-      container.removeEventListener(
-        "scroll",
-        handleScroll
-      );
-
+      container.removeEventListener("scroll", handleScroll);
     };
-
   }, [messages, jid]);
-
 
   // =========================================================
   // SCROLL KE BAWAH
   // =========================================================
-
   const scrollToBottom = () => {
-
-    const container =
-      getScrollContainer();
-
+    const container = getScrollContainer();
     if (!container) return;
-
 
     container.scrollTo({
       top: container.scrollHeight,
       behavior: "smooth",
     });
 
-
     setShowScrollButton(false);
   };
-
 
   // =========================================================
   // FILTER GAMBAR
   // =========================================================
-
   const currChatImages = useMemo(() => {
-
-    return messages.filter(
-      (msg) =>
-        msg?.msgType === "image"
-    );
-
+    return messages.filter((msg) => msg?.msgType === "image");
   }, [messages]);
-
 
   // =========================================================
   // RANDOM COLORS
   // =========================================================
-
   const colors = useMemo(() => {
-
-    return getRandomColors(
-      messages.length,
-      recieveColors
-    );
-
+    return getRandomColors(messages.length, recieveColors);
   }, [messages.length]);
-
 
   // =========================================================
   // HEADER TANGGAL
   // =========================================================
-
   const isFirstMessageOfDay = (
     currentMessage: any,
     previousMessage: any
   ) => {
-
     if (!previousMessage) return true;
 
-    const currentDate =
-      new Date(currentMessage.date);
-
-    const previousDate =
-      new Date(previousMessage.date);
+    const currentDate = new Date(currentMessage.date);
+    const previousDate = new Date(previousMessage.date);
 
     return (
-      currentDate.toDateString() !==
-      previousDate.toDateString()
+      currentDate.toDateString() !== previousDate.toDateString()
     );
   };
-
 
   // =========================================================
   // FULLSCREEN IMAGE
   // =========================================================
-
-  const handleShowBigImg = (
-    message: any
-  ) => {
-
-    const clickedImageIndex =
-      currChatImages.findIndex(
-        (img) =>
-          img.date === message.date
-      );
-
+  const handleShowBigImg = (message: any) => {
+    const clickedImageIndex = currChatImages.findIndex(
+      (img) => img.date === message.date
+    );
 
     dispatch(
       openfullScreen({
         images: currChatImages,
-
         currentImage: message.file,
-
         isFullscreen: true,
-
         zoomLevel: 1,
-
-        currentIndex:
-          clickedImageIndex,
+        currentIndex: clickedImageIndex,
       })
     );
   };
 
-
   // =========================================================
   // UPLOAD IMAGE
   // =========================================================
-
   const handleUploadImages = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-
     if (!e.target.files) return;
 
-    dispatch(
-      setShowAttachFiles(false)
-    );
-
-    // TODO:
-    // Upload media ke backend
+    dispatch(setShowAttachFiles(false));
+    // TODO: Upload media ke backend
   };
-
 
   // =========================================================
   // RENDER
   // =========================================================
-
   return (
     <div
       ref={chatContentRef}
@@ -478,9 +323,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         text-white
       "
     >
-      {/* =====================================================
-          INCOMING CALL
-      ===================================================== */}
+      {/* INCOMING CALL */}
       {startCall?.call && (
         <div
           className="
@@ -501,9 +344,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         </div>
       )}
 
-      {/* =====================================================
-          MESSAGE CONTENT
-      ===================================================== */}
+      {/* MESSAGE CONTENT */}
       <div
         className="
           sm:px-16
@@ -515,9 +356,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           bg-transparent
         "
       >
-
         {loading ? (
-
           <div
             className="
               text-center
@@ -527,160 +366,83 @@ const ChatPage: React.FC<ChatPageProps> = ({
           >
             Memuat pesan...
           </div>
-
         ) : messages.length > 0 ? (
-
-          messages.map(
-            (
-              message: any,
-              index: number
-            ) => (
-
-              <div
-                key={
-                  message._id ||
-                  index
-                }
-              >
-
-                {/* DATE */}
-
-                {isFirstMessageOfDay(
-                  message,
-                  index > 0
-                    ? messages[index - 1]
-                    : null
-                ) && (
-
+          messages.map((message: any, index: number) => (
+            <div key={message._id || index}>
+              {/* DATE */}
+              {isFirstMessageOfDay(
+                message,
+                index > 0 ? messages[index - 1] : null
+              ) && (
+                <div
+                  className="
+                    flex
+                    justify-center
+                    items-center
+                    my-2
+                  "
+                >
                   <div
                     className="
-                      flex
-                      justify-center
-                      items-center
-                      my-2
+                      text-center
+                      text-[.81rem]
+                      bg-[#111b21]
+                      py-2
+                      px-2
+                      text-[#8696a0]
+                      rounded-lg
+                      uppercase
                     "
                   >
-
-                    <div
-                      className="
-                        text-center
-                        text-[.81rem]
-                        bg-[#111b21]
-                        py-2
-                        px-2
-                        text-[#8696a0]
-                        rounded-lg
-                        uppercase
-                      "
-                    >
-                      {formatDate(
-                        message.date
-                      )}
-                    </div>
-
+                    {formatDate(message.date)}
                   </div>
+                </div>
+              )}
 
-                )}
+              {/* NOTIFICATION */}
+              {message.msgType === "notification" && (
+                <p className="notification">{message.message}</p>
+              )}
 
+              {/* TEXT */}
+              {message.msgType === "text" && (
+                <Message
+                  key={message._id || index}
+                  message={message}
+                  color={colors[index] as string}
+                  scrollToMessage={scrollToMessage}
+                  index={index}
+                />
+              )}
 
-                {/* NOTIFICATION */}
+              {/* IMAGE */}
+              {message.msgType === "image" && (
+                <ImageComp
+                  key={index}
+                  onClick={() => handleShowBigImg(message)}
+                  message={message}
+                />
+              )}
 
-                {message.msgType ===
-                  "notification" && (
+              {/* VIDEO COMPONENT */}
+              {message.msgType === "video" && (
+                <VideoMessage key={index} message={message} />
+              )}
 
-                  <p className="notification">
-                    {message.message}
-                  </p>
-
-                )}
-
-
-                {/* TEXT */}
-
-                {message.msgType ===
-                  "text" && (
-
-                  <Message
-                    key={
-                      message._id ||
-                      index
-                    }
-
-                    message={message}
-
-                    color={
-                      colors[index] as string
-                    }
-
-                    scrollToMessage={
-                      scrollToMessage
-                    }
-
-                    index={index}
-                  />
-
-                )}
-
-
-                {/* IMAGE */}
-
-                {message.msgType ===
-                  "image" && (
-
-                  <ImageComp
-                    key={index}
-
-                    onClick={() =>
-                      handleShowBigImg(
-                        message
-                      )
-                    }
-
-                    message={message}
-                  />
-
-                )}
-
-                {/* VIDEO COMPONENT (LAZY LOADED ON CLICK) */}
-                {message.msgType === "video" && (
-                  <VideoMessage key={index} message={message} />
-                )}
-
-                {/* AUDIO */}
-                {(
-                  message.msgType ===
-                    "audio" ||
-                  message.msgType ===
-                    "voice" ||
-                  message.msgType ===
-                    "ptt"
-                ) && (
-
-                  <Audio
-                    key={index}
-
-                    onClick={() =>
-                      handleShowBigImg(
-                        message
-                      )
-                    }
-
-                    color={
-                      colors[index] as string
-                    }
-
-                    message={message}
-                  />
-
-                )}
-
-              </div>
-
-            )
-          )
-
+              {/* AUDIO */}
+              {(message.msgType === "audio" ||
+                message.msgType === "voice" ||
+                message.msgType === "ptt") && (
+                <Audio
+                  key={index}
+                  onClick={() => handleShowBigImg(message)}
+                  color={colors[index] as string}
+                  message={message}
+                />
+              )}
+            </div>
+          ))
         ) : (
-
           <div
             className="
               text-center
@@ -688,17 +450,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
               py-10
             "
           >
-            Belum ada pesan di
-            percakapan ini.
+            Belum ada pesan di percakapan ini.
           </div>
-
         )}
 
-
-        {/* ===================================================
-            ATTACHMENT PANEL
-        =================================================== */}
-
+        {/* ATTACHMENT PANEL */}
         <div
           aria-orientation="vertical"
           aria-labelledby="menu-button"
@@ -712,7 +468,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
           `}
           role="menu"
         >
-
           <div
             className="
               py-1
@@ -721,14 +476,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
             "
             role="none"
           >
-
             {/* DOCUMENT */}
-
             <div
               className="
                 hover:bg-[#111b21]
                 rounded-md
-                text-white
+                text-[#ffffff]
                 flex
                 gap-3
                 items-center
@@ -736,19 +489,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 px-2
               "
             >
-
               <IoDocumentTextOutline
                 size={20}
                 className="text-[#9185ce]"
               />
-
               <input
                 type="file"
                 id="document"
                 className="hidden"
                 multiple
               />
-
               <label
                 htmlFor="document"
                 className="
@@ -759,12 +509,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
               >
                 document
               </label>
-
             </div>
 
-
             {/* PHOTO */}
-
             <div
               className="
                 hover:bg-[#111b21]
@@ -777,23 +524,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 px-2
               "
             >
-
               <IoMdPhotos
                 size={20}
                 className="text-[#007bfc]"
               />
-
               <input
                 id="photosvideos"
                 multiple
                 type="file"
                 accept=".jpg,.jpeg,.png"
                 className="hidden"
-                onChange={
-                  handleUploadImages
-                }
+                onChange={handleUploadImages}
               />
-
               <label
                 htmlFor="photosvideos"
                 className="
@@ -804,12 +546,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
               >
                 photos & videos
               </label>
-
             </div>
 
-
             {/* CAMERA */}
-
             <div
               className="
                 hover:bg-[#111b21]
@@ -822,21 +561,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 px-2
               "
             >
-
               <AiOutlineCamera
                 size={20}
                 className="text-[#c78399]"
               />
-
-              <p className="text-md">
-                camera
-              </p>
-
+              <p className="text-md">camera</p>
             </div>
-
 
             {/* CONTACT */}
-
             <div
               className="
                 hover:bg-[#111b21]
@@ -849,20 +581,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 px-2
               "
             >
-
-              <FcContacts
-                size={20}
-              />
-
-              <p className="text-md">
-                contact
-              </p>
-
+              <FcContacts size={20} />
+              <p className="text-md">contact</p>
             </div>
 
-
             {/* POLL */}
-
             <div
               className="
                 hover:bg-[#111b21]
@@ -875,21 +598,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 px-2
               "
             >
-
               <MdPoll
                 size={20}
                 className="text-[#ffbc38]"
               />
-
-              <p className="text-md">
-                poll
-              </p>
-
+              <p className="text-md">poll</p>
             </div>
 
-
             {/* STICKER */}
-
             <div
               className="
                 hover:bg-[#111b21]
@@ -902,18 +618,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 px-2
               "
             >
-
               <PiStickerDuotone
                 size={20}
                 className="text-[#02a698]"
               />
-
               <input
                 type="file"
                 id="sticker"
                 className="hidden"
               />
-
               <label
                 htmlFor="sticker"
                 className="
@@ -924,25 +637,15 @@ const ChatPage: React.FC<ChatPageProps> = ({
               >
                 sticker
               </label>
-
             </div>
-
           </div>
-
         </div>
 
-
-        {/* ===================================================
-            SCROLL DOWN BUTTON
-        =================================================== */}
-
+        {/* SCROLL DOWN BUTTON */}
         {showScrollButton && (
-
           <button
             type="button"
-            onClick={
-              scrollToBottom
-            }
+            onClick={scrollToBottom}
             className="
               fixed
               bottom-20
@@ -967,27 +670,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
             aria-label="Scroll ke pesan terbaru"
             title="Ke pesan terbaru"
           >
-
-            <ChevronDown
-              size={20}
-            />
-
+            <ChevronDown size={20} />
           </button>
-
         )}
-
       </div>
-
     </div>
   );
 };
 
+export default React.memo(ChatPage);
 
-export default React.memo(
-  ChatPage
-);
-
-// Sub-komponen khusus Video agar render super cepat
+// Sub-komponen khusus Video
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -1013,23 +706,18 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
         }`}
       >
         {!isPlaying ? (
-          /* TAMPILAN AWAL LEBIH BESAR (ASPECT VIDEO) */
           <div
             onClick={handlePlayClick}
             className="relative w-full aspect-video bg-[#111b21] rounded-md flex items-center justify-center cursor-pointer group overflow-hidden border border-[#222d34]"
           >
-            {/* Play Button */}
             <div className="w-14 h-14 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-10 border border-white/20">
               <div className="w-0 h-0 border-t-[9px] border-t-transparent border-l-[16px] border-l-white border-b-[9px] border-b-transparent ml-1" />
             </div>
-
-            {/* Indicator Video */}
             <span className="absolute bottom-2 right-2 bg-black/70 text-[11px] px-2 py-0.5 rounded text-white/80 font-medium">
               Video
             </span>
           </div>
         ) : (
-          /* SAAT DI-PLAY */
           <video
             ref={videoRef}
             src={videoUrl}
@@ -1042,7 +730,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
           </video>
         )}
 
-        {/* CAPTION (HANYA MUNCUL JIKA ADA) */}
         {message.message && (
           <p className="text-sm text-white px-1 pt-1.5 break-words">
             {message.message}
