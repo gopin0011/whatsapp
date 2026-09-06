@@ -46,36 +46,30 @@ const Home = () => {
   useEffect(() => {
     if (!centrifuge) return;
 
-    const sub = centrifuge.newSubscription(
-      'whatsapp:messages'
-    );
+    const channelName = 'whatsapp:messages';
 
-    sub.on('publication', (ctx) => {
+    // 1. Cek apakah subscription sudah ada sebelumnya
+    let sub = centrifuge.getSubscription(channelName);
+
+    // 2. Jika belum ada, baru buat subscription baru
+    if (!sub) {
+      sub = centrifuge.newSubscription(channelName);
+    }
+
+    // Handlers
+    const handlePublication = (ctx: any) => {
       const newMessage = ctx.data;
 
-      console.log(
-        'Pesan baru dari websocket:',
-        newMessage
-      );
+      console.log('Pesan baru dari websocket:', newMessage);
 
-      const incomingJid =
-        newMessage.jid ||
-        newMessage.data?.jid;
+      const incomingJid = newMessage.jid || newMessage.data?.jid;
+      const isFromMe = newMessage.fromMe ?? newMessage.data?.fromMe ?? false;
 
-      const isFromMe =
-        newMessage.fromMe ??
-        newMessage.data?.fromMe ??
-        false;
-
-      if (!incomingJid) {
-        return;
-      }
+      if (!incomingJid) return;
 
       setLatestChats((prevChats) => {
         const existingChat = prevChats.find(
-          (chat) =>
-            chat.jid?.toLowerCase() ===
-            incomingJid.toLowerCase()
+          (chat) => chat.jid?.toLowerCase() === incomingJid.toLowerCase()
         );
 
         const messageText =
@@ -85,18 +79,10 @@ const Home = () => {
           '';
 
         const formattedMessage = {
-          // Pertahankan semua data chat lama
           ...existingChat,
-
-          // Data websocket terbaru
           ...newMessage,
-
-          // Data utama
           jid: incomingJid,
-
           text: messageText,
-
-          // DISPLAY NAME
           display_name:
             newMessage.display_name ||
             newMessage.data?.display_name ||
@@ -105,8 +91,6 @@ const Home = () => {
             newMessage.data?.pushName ||
             existingChat?.pushName ||
             '',
-
-          // AVATAR
           profile:
             newMessage.profile ||
             newMessage.data?.profile ||
@@ -115,41 +99,41 @@ const Home = () => {
             newMessage.avatar ||
             newMessage.data?.avatar ||
             '',
-
-          // Push name tetap dipertahankan
           pushName:
             newMessage.pushName ||
             newMessage.data?.pushName ||
             existingChat?.pushName ||
             '',
-
           timestamp:
             newMessage.timestamp ||
             newMessage.data?.timestamp ||
             existingChat?.timestamp ||
             new Date().toISOString(),
-
           fromMe: isFromMe,
         };
 
         const filteredChats = prevChats.filter(
-          (chat) =>
-            chat.jid?.toLowerCase() !==
-            incomingJid.toLowerCase()
+          (chat) => chat.jid?.toLowerCase() !== incomingJid.toLowerCase()
         );
 
-        return [
-          formattedMessage,
-          ...filteredChats,
-        ];
+        return [formattedMessage, ...filteredChats];
       });
-    });
+    };
 
-    sub.subscribe();
+    // Pasang listener dan jalankan subscribe jika belum aktif
+    sub.on('publication', handlePublication);
 
+    if (sub.state === 'unsubscribed') {
+      sub.subscribe();
+    }
+
+    // Cleanup saat komponen unmount
     return () => {
-      sub.unsubscribe();
-      sub.removeAllListeners();
+      if (sub) {
+        sub.off('publication', handlePublication);
+        // Lepas/unsubscribe subscription dari instance centrifuge
+        sub.unsubscribe();
+      }
     };
   }, [centrifuge]);
 

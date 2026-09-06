@@ -22,6 +22,9 @@ const Chat = ({
 
   const location = useLocation();
 
+  // Menerima state displayName dan avatar dari navigasi Users.tsx
+  const displayName = location.state?.displayName;
+  const avatar = location.state?.avatar;
   const selectedChat = location.state?.chat;
 
   const chatPageRef = useRef<HTMLDivElement | null>(null);
@@ -35,7 +38,7 @@ const Chat = ({
   );
 
   // User yang sedang aktif
-  const currentUser = friends[currentUserIndex];
+  const currentUser = friends?.[currentUserIndex];
 
   // =========================================================
   // AUTO SCROLL
@@ -97,6 +100,7 @@ const Chat = ({
         backImg
         bg-black
         overflow-hidden
+        relative
       "
     >
 
@@ -107,6 +111,8 @@ const Chat = ({
         <ChatHeader
           handleSendOffer={handleSendOffer}
           chat={selectedChat}
+          displayName={displayName}
+          avatar={avatar}
         />
       </div>
 
@@ -122,8 +128,7 @@ const Chat = ({
           overflow-y-auto
           overflow-x-hidden
           custom-scrollbar
-          bg-black
-          bg-opacity-80
+          bg-black/85
           scroll-smooth
         "
       >
@@ -146,9 +151,11 @@ const Chat = ({
       </div>
 
       {/* =====================================================
-          CONTACT INFO
+          CONTACT INFO (Diberi wrapper absolute / fixed)
       ===================================================== */}
-      <ContactInfo />
+      <div className="absolute inset-0 pointer-events-none z-50 [&>*]:pointer-events-auto">
+        <ContactInfo />
+      </div>
 
     </div>
   );

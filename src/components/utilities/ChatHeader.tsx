@@ -29,13 +29,19 @@ interface ChatHeaderLocationState {
   online_status?: boolean;
 }
 
+interface ChatHeaderProps {
+  handleSendOffer: () => void;
+  chat?: any;
+  displayName?: string;
+  avatar?: string;
+}
+
 const ChatHeader = ({
   handleSendOffer,
   chat,
-}: {
-  handleSendOffer: () => void;
-  chat?: any;
-}) => {
+  displayName: propDisplayName,
+  avatar: propAvatar,
+}: ChatHeaderProps) => {
   const [grpUsers, setGrpUsers] = useState("");
 
   const dispatch: AppDispatch = useDispatch();
@@ -52,7 +58,7 @@ const ChatHeader = ({
   );
 
   // =========================================================
-  // DATA DARI HOME
+  // DATA DARI HOME / LOCATION STATE
   // =========================================================
 
   const chatState =
@@ -69,16 +75,19 @@ const ChatHeader = ({
   // =========================================================
   // DISPLAY NAME
   // Prioritas:
-  // 1. data dari Home
-  // 2. Redux display_name
-  // 3. pushName
+  // 1. prop direct dari Chat.tsx
+  // 2. location state dari Users.tsx
+  // 3. Redux / chat object display_name / pushName
   // 4. nomor dari JID
   // =========================================================
 
   const rawDisplayName =
+    propDisplayName ||
     chatState?.display_name ||
     chatState?.pushName ||
     currentUser?.display_name ||
+    currentUser?.displayName ||
+    currentUser?.pushName ||
     "";
 
   const displayName =
@@ -93,12 +102,15 @@ const ChatHeader = ({
   // =========================================================
   // AVATAR
   // Prioritas:
-  // 1. data dari Home
-  // 2. Redux profile
-  // 3. Redux avatar
+  // 1. prop direct dari Chat.tsx
+  // 2. location state dari Users.tsx
+  // 3. Redux profile / avatar / avatarUrl
   // =========================================================
 
   const profileUrl =
+    propAvatar ||
+    chatState?.avatar ||
+    chatState?.profile ||
     currentUser?.profile ||
     currentUser?.avatar ||
     currentUser?.avatarUrl ||
@@ -157,11 +169,15 @@ const ChatHeader = ({
   // =========================================================
 
   const handleCloseChat = () => {
-    dispatch(setCurrentGrpOrUser(null));
     setDropdown(false);
 
-    // Kembali ke Home
+    // 1. Pindah halaman ke Home terlebih dahulu
     navigate("/");
+
+    // 2. Reset state Redux setelah halaman berpindah
+    setTimeout(() => {
+      dispatch(setCurrentGrpOrUser(null));
+    }, 0);
   };
 
   // =========================================================
@@ -339,11 +355,7 @@ const ChatHeader = ({
             max-w-[600px]
           "
         >
-          {grpUsers !== ""
-            ? grpUsers
-            : isOnline
-              ? "online"
-              : "offline"}
+          
         </span>
       </div>
 

@@ -415,24 +415,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // =========================================================
 
   return (
-
     <div
       ref={chatContentRef}
       className="
         relative
         w-full
         min-h-full
-        bg-[#0b141a]
+        bg-transparent
         text-white
       "
     >
-
       {/* =====================================================
           INCOMING CALL
       ===================================================== */}
-
       {startCall?.call && (
-
         <div
           className="
             absolute
@@ -444,22 +440,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
             p-2
           "
         >
-
           <IncomingCall
             acceptCall={handleOffer}
             rejectOnClick={rejectCall}
             imageUrl={null}
           />
-
         </div>
-
       )}
-
 
       {/* =====================================================
           MESSAGE CONTENT
       ===================================================== */}
-
       <div
         className="
           sm:px-16
@@ -468,7 +459,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           sm:py-5
           space-y-3
           min-h-full
-          bg-[#0b141a]
+          bg-transparent
         "
       >
 

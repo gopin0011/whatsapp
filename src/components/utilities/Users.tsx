@@ -27,7 +27,20 @@ const Users: React.FC<UsersProps> = ({
   const navigate = useNavigate();
 
   const handleChatClick = (chat: ChatItem) => {
-    navigate(`/chat/${encodeURIComponent(chat.jid)}`);
+    const title =
+      chat.displayName ||
+      chat.contactName ||
+      chat.pushName ||
+      chat.jid.split('@')[0];
+
+    navigate(`/chat/${encodeURIComponent(chat.jid)}`, {
+      state: {
+        jid: chat.jid,
+        display_name: title,
+        avatar: chat.avatarUrl || null,
+        pushName: chat.pushName,
+      },
+    });
   };
 
   const skeliton = new Array(8).fill(0);

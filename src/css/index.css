@@ -16,6 +16,8 @@ h3 {
 
 .backImg {
 	background-image: url('../assets/chat-bg.png');
+	background-repeat: repeat;
+  	background-size: contain;
 }
 
 .whatsappBgImg {
