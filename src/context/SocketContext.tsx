@@ -250,15 +250,37 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       );
     });
 
-    sub.on('publication', (ctx: any) => {
-      console.log('======================================');
-      console.log('📩📩📩 PUBLICATION MASUK');
-      console.log('📡 Channel:', channelName);
-      console.log('📦 Context:', ctx);
-      console.log('📦 Data:', ctx.data);
-      console.log('======================================');
+    sub.on('publication', async (ctx) => {
+      console.log("📩 PESAN BARU DITERIMA DARI WEBSOCKET:", ctx.data);
+      const data = ctx.data?.data || ctx.data; // Ambil payload JSON
 
-      handleIncomingMessage(ctx.data);
+      if (data && data.jid) {
+        // 1. Simpan/Update Isi Pesan Detail
+        await db.messages.put({
+          id: data.id,
+          instance: data.instance || instance,
+          jid: data.jid,
+          message: data.text || data.message || '',
+          timestamp: data.timestamp || new Date().toISOString(),
+          isMyMsg: data.fromMe ?? false,
+          msgType: data.mediaType || 'text',
+          file: data.mediaUrl || null,
+          thumbUrl: data.thumbUrl || null,
+          sender: { name: data.displayName || data.pushName || 'Unknown' }
+        });
+
+        // 2. Simpan/Update Daftar Chat Room (Sisi Kiri/Home)
+        await db.chats.put({
+          instance: data.instance || instance,
+          jid: data.jid,
+          text: data.text || data.message || '',
+          timestamp: data.timestamp || new Date().toISOString(),
+          fromMe: data.fromMe ?? false,
+          pushName: data.pushName || '',
+          displayName: data.displayName || data.contactName || data.pushName || data.jid.split('@')[0],
+          avatarUrl: data.avatarUrl || null
+        });
+      }
     });
 
     subRef.current = sub;

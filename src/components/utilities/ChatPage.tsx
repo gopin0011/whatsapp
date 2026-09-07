@@ -64,11 +64,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const realJid = useMemo(() => {
     if (!jid) return "";
+    let decoded = jid;
     try {
-      return atob(jid);
+      decoded = atob(jid);
     } catch (e) {
-      return jid;
+      decoded = jid;
     }
+    return decoded.trim();
   }, [jid]);
 
   const [loadingApi, setLoadingApi] = useState(false);
@@ -115,19 +117,27 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const messages = useMemo(() => {
     if (!rawMessages) return [];
     return rawMessages.map((msg: any) => {
-      const type = msg.msgType || "text";
+      let rawType = (msg.msgType || msg.mediaType || "text").toLowerCase();
+
+      // Normalisasi dari format WA API ke format UI React
+      let normalizedType = "text";
+      if (rawType.includes("image")) normalizedType = "image";
+      else if (rawType.includes("video")) normalizedType = "video";
+      else if (rawType.includes("audio") || rawType.includes("voice") || rawType.includes("ptt")) normalizedType = "audio";
+      else if (rawType.includes("sticker")) normalizedType = "sticker";
+
       return {
         _id: msg.id,
         id: msg.id,
         instance: msg.instance,
         jid: msg.jid,
-        message: msg.message,
+        message: msg.message || msg.text || "",
         date: msg.timestamp,
         timestamp: msg.timestamp,
         isMyMsg: msg.isMyMsg,
-        msgType: type,
-        file: formatMediaUrl(msg.file || msg.mediaUrl, false, type),
-        thumbUrl: formatMediaUrl(msg.thumbUrl || msg.file || msg.mediaUrl, true, type),
+        msgType: normalizedType, // Gunakan tipe yang sudah dinormalisasi
+        file: formatMediaUrl(msg.file || msg.mediaUrl, false, normalizedType),
+        thumbUrl: formatMediaUrl(msg.thumbUrl || msg.file || msg.mediaUrl, true, normalizedType),
         sender: msg.sender || { name: msg.jid?.split("@")[0] || "Unknown" },
       };
     });

@@ -1,6 +1,5 @@
 import Dexie, { Table } from 'dexie';
 
-// 1. Interface untuk item riwayat pesan
 export interface MessageItem {
   id: string;
   instance: string;
@@ -14,9 +13,8 @@ export interface MessageItem {
   sender: { name: string };
 }
 
-// 2. Interface untuk item daftar chat room
 export interface ChatItem {
-  instance?: string;
+  instance: string;
   jid: string;
   text: string;
   timestamp: string;
@@ -26,20 +24,19 @@ export interface ChatItem {
   avatarUrl?: string;
 }
 
-// 3. Subkelas Dexie bertipe lengkap
 export class WhatsAppOfflineDB extends Dexie {
-  chats!: Table<ChatItem, string>;
+  chats!: Table<ChatItem, [string, string]>; // Primary key berupa tuple [instance, jid]
   messages!: Table<MessageItem, string>;
 
   constructor() {
     super('WhatsAppOfflineDB');
     
-    this.version(1).stores({
-      chats: 'jid, instance, timestamp, displayName',
+    // Naikkan versi ke 2 untuk memperbarui skema primary key
+    this.version(2).stores({
+      chats: '[instance+jid], instance, jid, timestamp',
       messages: 'id, instance, jid, timestamp'
     });
   }
 }
 
-// 4. Export instans tunggal untuk dipakai di seluruh komponen
 export const db = new WhatsAppOfflineDB();
