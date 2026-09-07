@@ -103,8 +103,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const rawMessages = useLiveQuery(
     () =>
       db.messages
-        .where("[instance+jid]")
-        .equals([instance, realJid])
+        .where("instance")
+        .equals(instance)
+        .filter((msg) => msg.jid === realJid)
         .sortBy("timestamp"),
     [instance, realJid]
   );

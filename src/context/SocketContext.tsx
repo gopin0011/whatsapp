@@ -106,20 +106,24 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     }
   };
 
-  const handleIncomingMessage = (newMessage: any) => {
+  const handleIncomingMessage = async (newMessage: any) => {
+    console.log('📥 handleIncomingMessage:', newMessage);
+
     const payload = newMessage?.data || newMessage;
-    const incomingJid = payload?.jid || payload?.key?.remoteJid;
+
+    const incomingJid =
+      payload?.jid ||
+      payload?.key?.remoteJid;
 
     if (!incomingJid) {
-      console.warn('⚠️ Incoming message tidak punya JID:', newMessage);
+      console.warn(
+        '⚠️ Pesan WebSocket tidak punya JID:',
+        newMessage
+      );
       return;
     }
 
-    if (!isConnectedRef.current) {
-      socketBufferRef.current.push(newMessage);
-    } else {
-      saveToDexie(newMessage);
-    }
+    await saveToDexie(newMessage);
   };
 
   const processBuffer = async () => {
@@ -134,68 +138,146 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
   // Effect 1: Inisialisasi Koneksi Websocket Utama
   useEffect(() => {
-    const wsUrl = import.meta.env.VITE_API_SOCKET_URL || 'ws://192.168.100.245:8000/connection/websocket';
-    console.log('🔄 Memulai koneksi ke Centrifugo URL:', wsUrl);
+    const wsUrl =
+      import.meta.env.VITE_API_SOCKET_URL ||
+      'ws://192.168.100.245:8000/connection/websocket';
+
+    console.log('======================================');
+    console.log('🔌 CENTRIFUGO CONNECT');
+    console.log('🔌 URL:', wsUrl);
+    console.log('======================================');
 
     const client = new Centrifuge(wsUrl);
 
+    client.on('connecting', (ctx) => {
+      console.log('🔄 Centrifugo connecting:', ctx);
+    });
+
     client.on('connected', (ctx) => {
-      console.log('✅ Connected to Centrifugo WebSocket:', ctx);
+      console.log('✅✅✅ CENTRIFUGO CONNECTED:', ctx);
+
       setIsConnected(true);
       isConnectedRef.current = true;
+
       processBuffer();
     });
 
     client.on('disconnected', (ctx) => {
-      console.warn('⚠️ Disconnected from Centrifugo WebSocket:', ctx);
+      console.warn(
+        '⚠️ Centrifugo disconnected:',
+        ctx
+      );
+
       setIsConnected(false);
       isConnectedRef.current = false;
     });
 
     client.on('error', (err) => {
-      console.error('❌ Centrifugo WebSocket Error:', err);
+      console.error(
+        '❌❌❌ Centrifugo connection error:',
+        err
+      );
     });
 
     client.connect();
+
     setCentrifuge(client);
 
     return () => {
+      console.log('🧹 Disconnect Centrifugo');
       client.disconnect();
     };
   }, []);
 
   // Effect 2: Dynamic Subscription berdasarkan instance
   useEffect(() => {
-    if (!centrifuge) return;
-
-    if (subRef.current) {
-      subRef.current.unsubscribe();
+    if (!centrifuge) {
+      console.log('⏳ Centrifuge belum tersedia');
+      return;
     }
 
     const channelName = `whatsapp:messages:${instance}`;
-    console.log(`📡 Subscribing ke channel: ${channelName}`);
 
-    const sub = centrifuge.newSubscription(channelName);
+    console.log('======================================');
+    console.log('📡 MEMBUAT SUBSCRIPTION');
+    console.log('📡 Channel:', channelName);
+    console.log('📡 Instance:', instance);
+    console.log('======================================');
 
-    sub.on('subscribed', () => {
-      console.log(`🎉 Berhasil tersambung ke channel: ${channelName}`);
+    if (subRef.current) {
+      console.log('🧹 Unsubscribe subscription sebelumnya');
+      subRef.current.unsubscribe();
+      subRef.current = null;
+    }
+
+    let sub: Subscription;
+
+    try {
+      sub = centrifuge.newSubscription(channelName);
+    } catch (error) {
+      console.error(
+        '❌ Gagal membuat subscription:',
+        error
+      );
+      return;
+    }
+
+    sub.on('subscribing', (ctx) => {
+      console.log(
+        `🔄 SUBSCRIBING [${channelName}]`,
+        ctx
+      );
     });
 
-    sub.on('publication', (ctx: any) => {
-      console.log('📩 Pesan WebSocket masuk:', ctx.data);
-      handleIncomingMessage(ctx.data);
+    sub.on('subscribed', (ctx) => {
+      console.log(
+        `🎉🎉🎉 SUBSCRIBED [${channelName}]`,
+        ctx
+      );
+    });
+
+    sub.on('unsubscribed', (ctx) => {
+      console.warn(
+        `⚠️ UNSUBSCRIBED [${channelName}]`,
+        ctx
+      );
     });
 
     sub.on('error', (err) => {
-      console.error(`❌ Gagal subscribe channel ${channelName}:`, err);
+      console.error(
+        `❌❌❌ SUBSCRIPTION ERROR [${channelName}]`,
+        err
+      );
     });
 
-    sub.subscribe();
+    sub.on('publication', (ctx: any) => {
+      console.log('======================================');
+      console.log('📩📩📩 PUBLICATION MASUK');
+      console.log('📡 Channel:', channelName);
+      console.log('📦 Context:', ctx);
+      console.log('📦 Data:', ctx.data);
+      console.log('======================================');
+
+      handleIncomingMessage(ctx.data);
+    });
+
     subRef.current = sub;
 
+    console.log(
+      `🚀 Menjalankan subscribe(): ${channelName}`
+    );
+
+    sub.subscribe();
+
     return () => {
-      if (subRef.current) {
-        subRef.current.unsubscribe();
+      console.log(
+        `🧹 Cleanup subscription: ${channelName}`
+      );
+
+      sub.unsubscribe();
+
+      if (subRef.current === sub) {
+        subRef.current = null;
       }
     };
   }, [centrifuge, instance]);
