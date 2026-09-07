@@ -34,10 +34,9 @@ export class WhatsAppOfflineDB extends Dexie {
   constructor() {
     super('WhatsAppOfflineDB');
     
-    // Indeks pencarian disesuaikan dengan milikmu
     this.version(1).stores({
-      chats: '[instance+jid], instance, timestamp, [instance+timestamp], displayName',
-      messages: 'id, [instance+jid], instance, timestamp'
+      chats: 'jid, instance, timestamp, displayName',
+      messages: 'id, instance, jid, timestamp'
     });
   }
 }

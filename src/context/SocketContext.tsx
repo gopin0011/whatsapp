@@ -10,7 +10,7 @@ interface SocketContextType {
 
 interface SocketProviderProps {
   children: ReactNode;
-  instance?: string; // Menerima prop instance dinamis
+  instance?: string;
 }
 
 const SocketContext = createContext<SocketContextType>({
@@ -49,15 +49,15 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
   };
 
-  // Simpan ke Dexie (otomatis menyertakan field instance)
+  // Simpan ke Dexie
   const saveToDexie = async (msg: any) => {
     try {
-      // 1. Ambil nilai secara fleksibel (Akomodasi format backend & direct centrifugo)
-      const payload = msg.data || msg;
+      // Unpack payload secara fleksibel
+      const payload = msg?.data || msg;
 
-      const msgInstance = payload.instance || instance;
+      const msgInstance = payload.instance || instance || 'wa-ninih';
       const msgId = payload.id || payload.key?.id || new Date().getTime().toString();
-      const jid = payload.jid;
+      const jid = payload.jid || payload.key?.remoteJid;
       const text = payload.text || payload.message || '';
       const timestamp = payload.timestamp || new Date().toISOString();
       const fromMe = payload.fromMe ?? payload.isMyMsg ?? false;
@@ -68,12 +68,12 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       const msgType = payload.mediaType || payload.msgType || 'text';
       
       if (!jid) {
-        console.warn('⚠️ Pesan diabaikan karena JID kosong:', payload);
+        console.warn('⚠️ Pesan WebSocket diabaikan karena JID kosong:', payload);
         return;
       }
 
       await db.transaction('rw', db.messages, db.chats, async () => {
-        // Simpan ke daftar pesan
+        // 1. Simpan ke daftar riwayat pesan
         await db.messages.put({
           id: msgId,
           instance: msgInstance,
@@ -87,7 +87,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
         });
 
-        // Update daftar chat room
+        // 2. Update daftar chat room utama (dengan jid sebagai Primary Key)
         await db.chats.put({
           instance: msgInstance,
           jid: jid,
@@ -95,19 +95,25 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           timestamp: timestamp,
           fromMe: fromMe,
           pushName: pushName,
-          displayName: payload.displayName || pushName || jid.split('@')[0] || 'Unknown'
+          displayName: payload.displayName || pushName || jid.split('@')[0] || 'Unknown',
+          avatarUrl: payload.avatarUrl || null
         });
       });
 
-      console.log('✅ Pesan WebSocket berhasil disimpan ke IndexedDB:', msgId);
+      console.log(`✅ [${msgInstance}] Pesan dari ${jid} berhasil disimpan ke IndexedDB!`);
     } catch (error) {
       console.error('❌ Gagal menyimpan ke Dexie:', error);
     }
   };
 
   const handleIncomingMessage = (newMessage: any) => {
-    const incomingJid = newMessage.jid || newMessage.data?.jid;
-    if (!incomingJid) return;
+    const payload = newMessage?.data || newMessage;
+    const incomingJid = payload?.jid || payload?.key?.remoteJid;
+
+    if (!incomingJid) {
+      console.warn('⚠️ Incoming message tidak punya JID:', newMessage);
+      return;
+    }
 
     if (!isConnectedRef.current) {
       socketBufferRef.current.push(newMessage);
