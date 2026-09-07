@@ -52,22 +52,28 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   // Simpan ke Dexie (otomatis menyertakan field instance)
   const saveToDexie = async (msg: any) => {
     try {
-      const msgInstance = msg.instance || msg.data?.instance || instance;
-      const msgId = msg.id || msg.key?.id || msg.data?.id || new Date().getTime().toString();
-      const jid = msg.jid || msg.data?.jid;
-      const text = msg.text || msg.data?.text || '';
-      const timestamp = msg.timestamp || msg.data?.timestamp || new Date().toISOString();
-      const fromMe = msg.fromMe ?? msg.data?.fromMe ?? false;
-      const pushName = msg.pushName || msg.data?.pushName;
+      // 1. Ambil nilai secara fleksibel (Akomodasi format backend & direct centrifugo)
+      const payload = msg.data || msg;
+
+      const msgInstance = payload.instance || instance;
+      const msgId = payload.id || payload.key?.id || new Date().getTime().toString();
+      const jid = payload.jid;
+      const text = payload.text || payload.message || '';
+      const timestamp = payload.timestamp || new Date().toISOString();
+      const fromMe = payload.fromMe ?? payload.isMyMsg ?? false;
+      const pushName = payload.pushName || payload.contactName || payload.displayName;
       
-      const rawMediaUrl = msg.mediaUrl || msg.file || msg.data?.mediaUrl || msg.data?.file;
-      const rawThumbUrl = msg.thumbUrl || msg.data?.thumbUrl || rawMediaUrl;
-      const msgType = msg.mediaType || msg.msgType || msg.data?.mediaType || msg.data?.msgType || 'text';
+      const rawMediaUrl = payload.mediaUrl || payload.file;
+      const rawThumbUrl = payload.thumbUrl || rawMediaUrl;
+      const msgType = payload.mediaType || payload.msgType || 'text';
       
-      if (!jid) return;
+      if (!jid) {
+        console.warn('⚠️ Pesan diabaikan karena JID kosong:', payload);
+        return;
+      }
 
       await db.transaction('rw', db.messages, db.chats, async () => {
-        // 1. Simpan pesan
+        // Simpan ke daftar pesan
         await db.messages.put({
           id: msgId,
           instance: msgInstance,
@@ -81,7 +87,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
         });
 
-        // 2. Update status Room Chat
+        // Update daftar chat room
         await db.chats.put({
           instance: msgInstance,
           jid: jid,
@@ -89,11 +95,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           timestamp: timestamp,
           fromMe: fromMe,
           pushName: pushName,
-          displayName: msg.displayName || pushName || jid.split('@')[0] || 'Unknown'
+          displayName: payload.displayName || pushName || jid.split('@')[0] || 'Unknown'
         });
       });
+
+      console.log('✅ Pesan WebSocket berhasil disimpan ke IndexedDB:', msgId);
     } catch (error) {
-      console.error('Gagal menyimpan ke Dexie:', error);
+      console.error('❌ Gagal menyimpan ke Dexie:', error);
     }
   };
 
@@ -121,17 +129,25 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   // Effect 1: Inisialisasi Koneksi Websocket Utama
   useEffect(() => {
     const wsUrl = import.meta.env.VITE_API_SOCKET_URL || 'ws://192.168.100.245:8000/connection/websocket';
+    console.log('🔄 Memulai koneksi ke Centrifugo URL:', wsUrl);
+
     const client = new Centrifuge(wsUrl);
 
-    client.on('connected', () => {
+    client.on('connected', (ctx) => {
+      console.log('✅ Connected to Centrifugo WebSocket:', ctx);
       setIsConnected(true);
       isConnectedRef.current = true;
       processBuffer();
     });
 
-    client.on('disconnected', () => {
+    client.on('disconnected', (ctx) => {
+      console.warn('⚠️ Disconnected from Centrifugo WebSocket:', ctx);
       setIsConnected(false);
       isConnectedRef.current = false;
+    });
+
+    client.on('error', (err) => {
+      console.error('❌ Centrifugo WebSocket Error:', err);
     });
 
     client.connect();
@@ -146,17 +162,26 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   useEffect(() => {
     if (!centrifuge) return;
 
-    // 1. Unsubscribe channel lama jika ada
     if (subRef.current) {
       subRef.current.unsubscribe();
     }
 
-    // 2. Subscribe ke channel instance baru
     const channelName = `whatsapp:messages:${instance}`;
+    console.log(`📡 Subscribing ke channel: ${channelName}`);
+
     const sub = centrifuge.newSubscription(channelName);
 
+    sub.on('subscribed', () => {
+      console.log(`🎉 Berhasil tersambung ke channel: ${channelName}`);
+    });
+
     sub.on('publication', (ctx: any) => {
+      console.log('📩 Pesan WebSocket masuk:', ctx.data);
       handleIncomingMessage(ctx.data);
+    });
+
+    sub.on('error', (err) => {
+      console.error(`❌ Gagal subscribe channel ${channelName}:`, err);
     });
 
     sub.subscribe();
