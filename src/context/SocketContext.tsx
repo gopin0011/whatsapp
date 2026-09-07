@@ -98,29 +98,8 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const incomingJid = newMessage.jid || newMessage.data?.jid;
     if (!incomingJid) return;
 
-    const rawMediaUrl = newMessage.mediaUrl || newMessage.file || newMessage.data?.mediaUrl || newMessage.data?.file;
-    const rawThumbUrl = newMessage.thumbUrl || newMessage.data?.thumbUrl || rawMediaUrl;
-    const msgType = newMessage.mediaType || newMessage.msgType || newMessage.data?.mediaType || newMessage.data?.msgType || 'text';
-
-    // Formatter data untuk Redux State
-    const formattedMsg = {
-      _id: newMessage.id || newMessage.key?.id || newMessage.data?.id || new Date().getTime().toString(),
-      message: newMessage.text || newMessage.data?.text || '',
-      date: newMessage.timestamp || newMessage.data?.timestamp || new Date().toISOString(),
-      isMyMsg: newMessage.fromMe ?? newMessage.data?.fromMe ?? false,
-      msgType: msgType,
-      file: formatMediaUrl(rawMediaUrl, false, msgType),
-      thumbUrl: formatMediaUrl(rawThumbUrl, true, msgType),
-      sender: {
-        name: newMessage.pushName || newMessage.data?.pushName || incomingJid.split('@')[0] || 'Unknown',
-      },
-      raw: newMessage
-    };
-
-    // 1. Update UI secara real-time via Redux
-    dispatch(appendMessage({ jid: incomingJid, message: formattedMsg }));
-
-    // 2. Tahan di Buffer atau langsung simpan ke Dexie
+    // CUKUP SIMPAN KE DEXIE SAZA!
+    // `useLiveQuery` di ChatPage akan mendeteksi perubahan ini secara reaktif.
     if (!isConnectedRef.current) {
       socketBufferRef.current.push(newMessage);
     } else {

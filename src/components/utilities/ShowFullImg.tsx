@@ -1,135 +1,167 @@
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react';
 import { AiOutlineLeft, AiOutlineRight } from 'react-icons/ai';
 import { RxCross2 } from 'react-icons/rx';
 import { useDispatch, useSelector } from 'react-redux';
 import { AppDispatch, RootState } from '../../Redux/store';
-import { setCurrentImage, setIsFullscreen, setZoomLevel, setCurrentIndex } from '../../Redux/reducers/utils/Features';
-// import useCloseDropDown from '../reuse/CloseDropDown';
+import { 
+  setCurrentImage, 
+  setIsFullscreen, 
+  setZoomLevel, 
+  setCurrentIndex 
+} from '../../Redux/reducers/utils/Features';
+
 const ShowFullImg = () => {
+  const dispatch: AppDispatch = useDispatch();
+  
+  // Pastikan membaca dari slice state yang benar (features)
+  const { currentImage, isFullscreen, zoomLevel, currentIndex, images } = useSelector(
+    (state: RootState) => state.features
+  );
 
-    const { currentImage, isFullscreen, zoomLevel, currentIndex, images } = useSelector((state: RootState) => state.features)
-    
-    const dispatch: AppDispatch = useDispatch()
-    const [image, setImage] = useState<any>(null);
-    const [position, setPosition] = useState({ x: 0, y: 0 });
-    // const [dropdown, setDropdown] = useCloseDropDown(false, '.dropdown')
-    // URL.createObjectURL(currentImage)
-    useEffect(() => {
-        if (currentImage) {
-            if (currentImage instanceof File || currentImage instanceof Blob) {
-                setImage(URL.createObjectURL(currentImage))
-            } else if (typeof currentImage === 'string') {
-                setImage(currentImage); // Already a URL
-            }
-        }
-    }, [currentImage])
-    const handleScroll = useCallback((e: any) => {
-        const delta = e.deltaY || e.detail || e.wheelDelta;
+  const [imageUrl, setImageUrl] = useState<string>('');
+  const [position, setPosition] = useState({ x: 0, y: 0 });
 
-        // Zooming
-        const newZoomLevel = zoomLevel + (delta > 0 ? -0.3 : 0.3);
-        const constrainedZoom = Math.max(0.5, Math.min(newZoomLevel, 3));
-        dispatch(setZoomLevel(constrainedZoom))
+  // 1. Dapatkan URL string dari currentImage (File, Blob, atau String URL)
+  useEffect(() => {
+    if (!currentImage) {
+      setImageUrl('');
+      return;
+    }
 
-    }, [dispatch, zoomLevel]);
+    if (currentImage instanceof File || currentImage instanceof Blob) {
+      const objectUrl = URL.createObjectURL(currentImage);
+      setImageUrl(objectUrl);
+      return () => URL.revokeObjectURL(objectUrl); // Clean up memory
+    } else if (typeof currentImage === 'string') {
+      setImageUrl(currentImage);
+    }
+  }, [currentImage]);
 
-    useEffect(() => {
-        window.addEventListener('wheel', handleScroll);
+  // 2. Handle Scroll Zoom (Hanya aktif saat modal terbuka)
+  const handleScroll = useCallback(
+    (e: WheelEvent) => {
+      if (!isFullscreen) return;
+      const delta = e.deltaY;
+      const newZoomLevel = zoomLevel + (delta > 0 ? -0.2 : 0.2);
+      const constrainedZoom = Math.max(0.5, Math.min(newZoomLevel, 4));
+      dispatch(setZoomLevel(constrainedZoom));
+    },
+    [dispatch, isFullscreen, zoomLevel]
+  );
 
-        return () => {
-            window.removeEventListener('wheel', handleScroll);
-        };
-    }, [handleScroll]);
-
-
-    const handleMouseMove = useCallback((e: React.MouseEvent<HTMLDivElement, MouseEvent>) => {
-        if (e.buttons === 1) {
-            const panDistance = 25;
-            // Get the window dimensions
-            const windowWidth = window.innerWidth;
-            const windowHeight = window.innerHeight;
-            // Calculate the maximum allowed x and y positions
-            const maxX = windowWidth / 2 - (windowWidth / 2) / zoomLevel;
-            const maxY = windowHeight / 2 - (windowHeight / 2) / zoomLevel;
-            setPosition((prevPosition) => ({
-                x: Math.max(-maxX, Math.min(maxX, prevPosition.x + e.movementX * panDistance / zoomLevel)),
-                y: Math.max(-maxY, Math.min(maxY, prevPosition.y + e.movementY * panDistance / zoomLevel)),
-            }));
-        }
-    }, [setPosition, zoomLevel]);
-
-    const closeFullscreen = () => {
-        dispatch(setCurrentImage(null))
-        dispatch(setIsFullscreen(false))
-        setPosition({ x: 0, y: 0 })
-        setCurrentIndex(null);
-        // setIsZoomed(false);
+  useEffect(() => {
+    if (isFullscreen) {
+      window.addEventListener('wheel', handleScroll);
+    }
+    return () => {
+      window.removeEventListener('wheel', handleScroll);
     };
+  }, [handleScroll, isFullscreen]);
 
-    const nextImage = () => {
-        if (currentIndex !== null && currentIndex < images.length - 1) {
-            setPosition({ x: 0, y: 0 })
-            dispatch(setZoomLevel(1))
-            dispatch(setCurrentIndex(currentIndex + 1))
-            dispatch(setCurrentImage(images[currentIndex + 1].file))
+  // 3. Handle Drag / Pan Image
+  const handleMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLImageElement, MouseEvent>) => {
+      if (e.buttons === 1 && zoomLevel > 1) {
+        setPosition((prev) => ({
+          x: prev.x + e.movementX,
+          y: prev.y + e.movementY,
+        }));
+      }
+    },
+    [zoomLevel]
+  );
 
-        } else if (currentIndex! >= images.length - 1) {
-            setPosition({ x: 0, y: 0 })
-            dispatch(setIsFullscreen(false))
-        }
-    };
+  // 4. Close Modal
+  const closeFullscreen = () => {
+    dispatch(setCurrentImage(null));
+    dispatch(setIsFullscreen(false));
+    dispatch(setZoomLevel(1));
+    dispatch(setCurrentIndex(null)); // FIX: Ditambahkan dispatch()
+    setPosition({ x: 0, y: 0 });
+  };
 
-    const prevImage = () => {
-        if (currentIndex !== null && currentIndex > 0) {
-            setPosition({ x: 0, y: 0 })
-            dispatch(setZoomLevel(1))
-            dispatch(setCurrentIndex(currentIndex - 1))
+  // Helper untuk mengambil URL dari object gambar di array
+  const getImageUrlFromItem = (item: any) => {
+    if (!item) return '';
+    return item.file || item.mediaUrl || item.displayUrl || item.thumbUrl || '';
+  };
 
-            // setCurrentImage(URL.createObjectURL(images[currentIndex - 1]));
-            dispatch(setCurrentImage(images[currentIndex - 1].file))
-            // setIsZoomed(false); // Reset zoom state when changing images
-        } else if (currentIndex! <= 0) {
-            setPosition({ x: 0, y: 0 })
-            dispatch(setIsFullscreen(false));
-        }
-    };
-    // const closeFullScreen = () => {
-    //     setPosition({ x: 0, y: 0 })
-    //     dispatch(setIsFullscreen(false));
-    // }
-    return (
-        <div>
-            <div className={` fullscreen-overlay ${isFullscreen ? "active" : ""}`}>
-                <div className={`fullscreen-modal `}>
-                    <img draggable onMouseMove={handleMouseMove}
-                        src={image}
-                        alt={`Image ${currentIndex! + 1}`}
-                        style={{
-                            transform: `scale(${zoomLevel}) translate(${position.x}px, ${position.y}px)`,
-                        }}
-                        className={`fullscreen-image transition-all ease-in-out cursor-move	}`} />
-                    <span
-                        className="close-button p-2 hover:bg-gray-600 rounded-full"
-                        onClick={closeFullscreen}>
-                        <RxCross2 size={25} />
-                    </span>
-                    <span
-                        className="prev-button p-2 hover:bg-gray-600 rounded-full"
-                        onClick={prevImage}>
-                        <AiOutlineLeft size={25} />
-                    </span>
-                    <span
-                        className="next-button p-2 hover:bg-gray-600 rounded-full"
-                        onClick={nextImage}
-                    >
-                        <AiOutlineRight size={25} />
-                    </span>
-                </div>
-            </div>
-        </div>
+  // 5. Next Image
+  const nextImage = () => {
+    if (currentIndex !== null && images && currentIndex < images.length - 1) {
+      const nextIdx = currentIndex + 1;
+      setPosition({ x: 0, y: 0 });
+      dispatch(setZoomLevel(1));
+      dispatch(setCurrentIndex(nextIdx));
+      dispatch(setCurrentImage(getImageUrlFromItem(images[nextIdx])));
+    }
+  };
 
+  // 6. Prev Image
+  const prevImage = () => {
+    if (currentIndex !== null && images && currentIndex > 0) {
+      const prevIdx = currentIndex - 1;
+      setPosition({ x: 0, y: 0 });
+      dispatch(setZoomLevel(1));
+      dispatch(setCurrentIndex(prevIdx));
+      dispatch(setCurrentImage(getImageUrlFromItem(images[prevIdx])));
+    }
+  };
 
-    )
-}
+  if (!isFullscreen || !imageUrl) return null;
 
-export default React.memo(ShowFullImg)
+  return (
+    <div className="fixed inset-0 z-[9999] bg-black/90 flex items-center justify-center select-none backdrop-blur-sm">
+      {/* Container Image */}
+      <div className="relative w-full h-full flex items-center justify-center overflow-hidden">
+        <img
+          draggable={false}
+          onMouseMove={handleMouseMove}
+          src={imageUrl}
+          alt="Fullscreen View"
+          style={{
+            transform: `scale(${zoomLevel}) translate(${position.x}px, ${position.y}px)`,
+            transition: zoomLevel === 1 ? 'transform 0.2s ease-out' : 'none',
+          }}
+          className="max-w-full max-h-full object-contain cursor-grab active:cursor-grabbing"
+        />
+
+        {/* Close Button */}
+        <button
+          type="button"
+          className="absolute top-5 right-5 p-2.5 bg-gray-800/80 hover:bg-gray-700 text-white rounded-full transition z-10"
+          onClick={closeFullscreen}
+          title="Tutup"
+        >
+          <RxCross2 size={24} />
+        </button>
+
+        {/* Prev Button */}
+        {currentIndex !== null && currentIndex > 0 && (
+          <button
+            type="button"
+            className="absolute left-5 p-3 bg-gray-800/80 hover:bg-gray-700 text-white rounded-full transition z-10"
+            onClick={prevImage}
+            title="Sebelumnya"
+          >
+            <AiOutlineLeft size={24} />
+          </button>
+        )}
+
+        {/* Next Button */}
+        {currentIndex !== null && images && currentIndex < images.length - 1 && (
+          <button
+            type="button"
+            className="absolute right-5 p-3 bg-gray-800/80 hover:bg-gray-700 text-white rounded-full transition z-10"
+            onClick={nextImage}
+            title="Berikutnya"
+          >
+            <AiOutlineRight size={24} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default React.memo(ShowFullImg);

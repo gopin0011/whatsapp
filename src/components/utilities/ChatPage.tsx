@@ -12,7 +12,6 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/chatDb";
 
 import Message from "../cards/Message";
-
 import { RootState } from "../../Redux/store";
 
 import { FcContacts } from "react-icons/fc";
@@ -22,28 +21,15 @@ import { MdPoll } from "react-icons/md";
 import { PiStickerDuotone } from "react-icons/pi";
 import { IoDocumentTextOutline } from "react-icons/io5";
 
-import {
-  setShowAttachFiles,
-} from "../../Redux/reducers/utils/utilReducer";
-
+import { setShowAttachFiles } from "../../Redux/reducers/utils/utilReducer";
 import ImageComp from "./ImageComp";
-
-import {
-  openfullScreen,
-} from "../../Redux/reducers/utils/Features";
-
-import {
-  formatDate,
-} from "../cards/ReUseFunc";
-
-import {
-  recieveColors,
-} from "../../static/Static";
-
+import { openfullScreen } from "../../Redux/reducers/utils/Features";
+import { formatDate } from "../cards/ReUseFunc";
+import { recieveColors } from "../../static/Static";
 import Audio from "./Audio";
 import IncomingCall from "../cards/IncommingCall";
-
 import { ChevronDown } from "lucide-react";
+import ShowFullImg from "./ShowFullImg";
 
 const getRandomColors = (
   count: number,
@@ -67,14 +53,6 @@ interface ChatPageProps {
   rejectCall?: () => void;
 }
 
-interface ChatLocationState {
-  jid?: string;
-  display_name?: string;
-  pushName?: string;
-  profile?: string;
-  avatar?: string;
-}
-
 const ChatPage: React.FC<ChatPageProps> = ({
   instance = "wa-ninih",
   scrollToMessage = () => {},
@@ -84,7 +62,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const dispatch = useDispatch();
   const { jid } = useParams<{ jid: string }>();
 
-  // Decode JID dari URL
   const realJid = useMemo(() => {
     if (!jid) return "";
     try {
@@ -94,17 +71,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
     }
   }, [jid]);
 
-  const location = useLocation();
-  const chatState = (location.state as ChatLocationState | null) || null;
-
-  const [loading, setLoading] = useState(false);
+  const [loadingApi, setLoadingApi] = useState(false);
   const chatContentRef = useRef<HTMLDivElement | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
-  // Base URL server media
   const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
 
-  // Helper untuk formatting URL media & thumbnail
   const formatMediaUrl = (
     urlPath: string | null | undefined, 
     isThumb: boolean = false, 
@@ -126,14 +98,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   // =========================================================
-  // AMBIL PESAN REAKTIF DARI DEXIE INDEXEDDB
+  // AMBIL PESAN DARI DEXIE (undefined SAAT LOADING awal)
   // =========================================================
   const rawMessages = useLiveQuery(
     () => db.messages.where("jid").equals(realJid).sortBy("timestamp"),
     [realJid]
   );
 
-  // Formatting struktur data pesan agar kompatibel dengan komponen UI (Message, ImageComp, dsb)
+  // Status loading IndexedDB
+  const isDexieLoading = rawMessages === undefined;
+
   const messages = useMemo(() => {
     if (!rawMessages) return [];
     return rawMessages.map((msg: any) => {
@@ -158,65 +132,62 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { startCall } = useSelector((state: RootState) => state.auth);
 
   // =========================================================
-  // FETCH CHAT HISTORY (JIKA BELUM ADA DI DEXIE)
+  // FETCH HISTORY JIKA DEXIE KOSONG
   // =========================================================
   useEffect(() => {
     const fetchChatHistory = async () => {
-      if (!realJid) return;
+      if (!realJid || isDexieLoading) return;
 
-      try {
-        // Cek riwayat di Dexie
-        const localCount = await db.messages.where("jid").equals(realJid).count();
-        if (localCount > 0) return;
+      // Cek jika di IndexedDB memang tidak ada data
+      if (messages.length === 0) {
+        try {
+          setLoadingApi(true);
+          const baseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://localhost:8081";
+          const response = await axios.get(
+            `${baseUrl}/chat/${encodeURIComponent(realJid)}?instance=${instance}`
+          );
 
-        setLoading(true);
-        const baseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://localhost:8081";
-        const response = await axios.get(
-          `${baseUrl}/chat/${encodeURIComponent(realJid)}?instance=${instance}`
-        );
+          if (response.data?.success) {
+            const formattedMessages = response.data.data.map((chat: any) => ({
+              id: chat.id || chat._id || new Date().getTime().toString(),
+              jid: chat.jid || realJid,
+              message: chat.text || chat.message || "",
+              timestamp: chat.timestamp || chat.date || new Date().toISOString(),
+              isMyMsg: chat.fromMe ?? chat.isMyMsg ?? false,
+              msgType: chat.mediaType || chat.msgType || "text",
+              file: chat.mediaUrl || chat.file,
+              thumbUrl: chat.thumbUrl || chat.mediaUrl || chat.file,
+              sender: {
+                name:
+                  chat.pushName ||
+                  chat.sender?.name ||
+                  realJid.split("@")[0] ||
+                  "Unknown",
+              },
+            }));
 
-        if (response.data?.success) {
-          const formattedMessages = response.data.data.map((chat: any) => ({
-            id: chat.id || chat._id || new Date().getTime().toString(),
-            jid: chat.jid || realJid,
-            message: chat.text || chat.message || "",
-            timestamp: chat.timestamp || chat.date || new Date().toISOString(),
-            isMyMsg: chat.fromMe ?? chat.isMyMsg ?? false,
-            msgType: chat.mediaType || chat.msgType || "text",
-            file: chat.mediaUrl || chat.file,
-            thumbUrl: chat.thumbUrl || chat.mediaUrl || chat.file,
-            sender: {
-              name:
-                chat.pushName ||
-                chat.sender?.name ||
-                realJid.split("@")[0] ||
-                "Unknown",
-            },
-          }));
-
-          // Simpan massal ke Dexie
-          await db.messages.bulkPut(formattedMessages);
+            await db.messages.bulkPut(formattedMessages);
+          }
+        } catch (error) {
+          console.error("Gagal memuat riwayat pesan:", error);
+        } finally {
+          setLoadingApi(false);
         }
-      } catch (error) {
-        console.error("Gagal memuat riwayat pesan:", error);
-      } finally {
-        setLoading(false);
       }
     };
 
     fetchChatHistory();
-  }, [realJid, instance]);
+  }, [realJid, instance, isDexieLoading, messages.length]);
 
   // =========================================================
-  // AMBIL SCROLL CONTAINER
+  // FIX: LOGIKA INITIAL LOADING
   // =========================================================
+  const isInitialLoading = isDexieLoading || (loadingApi && messages.length === 0);
+
   const getScrollContainer = () => {
     return chatContentRef.current?.parentElement as HTMLDivElement | null;
   };
 
-  // =========================================================
-  // AUTO SCROLL KE PESAN TERBARU
-  // =========================================================
   useEffect(() => {
     if (!messages.length) return;
 
@@ -235,9 +206,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     });
   }, [messages.length, jid]);
 
-  // =========================================================
-  // DETEKSI POSISI SCROLL
-  // =========================================================
   useEffect(() => {
     const container = getScrollContainer();
     if (!container) return;
@@ -259,9 +227,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     };
   }, [messages.length, jid]);
 
-  // =========================================================
-  // SCROLL KE BAWAH
-  // =========================================================
   const scrollToBottom = () => {
     const container = getScrollContainer();
     if (!container) return;
@@ -274,9 +239,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     setShowScrollButton(false);
   };
 
-  // =========================================================
-  // FILTER GAMBAR & RANDOM COLORS
-  // =========================================================
   const currChatImages = useMemo(() => {
     return messages.filter((msg) => msg?.msgType === "image");
   }, [messages]);
@@ -285,9 +247,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return getRandomColors(messages.length, recieveColors);
   }, [messages.length]);
 
-  // =========================================================
-  // HEADER TANGGAL
-  // =========================================================
   const isFirstMessageOfDay = (currentMessage: any, previousMessage: any) => {
     if (!previousMessage) return true;
 
@@ -297,24 +256,21 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return currentDate.toDateString() !== previousDate.toDateString();
   };
 
-  // =========================================================
-  // FULLSCREEN IMAGE (PAKAI mediaUrl / file ASLI)
-  // =========================================================
   const handleShowBigImg = (message: any) => {
-    // 1. Map seluruh gambar agar modal Redux tahu file mana yang HD (mediaUrl)
+    const targetUrl = message.file || message.thumbUrl;
     const formattedImages = currChatImages.map((img) => ({
       ...img,
-      file: img.file, // URL Asli HD untuk mode perbesar
+      file: img.file || img.thumbUrl,
     }));
 
     const clickedImageIndex = formattedImages.findIndex(
-      (img) => img._id === message._id || img.id === message.id || img.date === message.date
+      (img) => img._id === message._id || img.id === message.id
     );
 
     dispatch(
       openfullScreen({
         images: formattedImages,
-        currentImage: message.file, // File HD gambar yang diklik
+        currentImage: targetUrl,
         isFullscreen: true,
         zoomLevel: 1,
         currentIndex: clickedImageIndex !== -1 ? clickedImageIndex : 0,
@@ -322,15 +278,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
     );
   };
 
-  // =========================================================
-  // UPLOAD IMAGE
-  // =========================================================
   const handleUploadImages = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     dispatch(setShowAttachFiles(false));
   };
-
-  const isInitialLoading = loading && messages.length === 0;
 
   return (
     <div
@@ -351,8 +302,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
       {/* MESSAGE CONTENT */}
       <div className="sm:px-16 px-5 py-5 sm:py-5 space-y-3 min-h-full bg-transparent">
         {isInitialLoading ? (
-          <div className="text-center text-gray-400 py-10">
-            Memuat percakapan...
+          <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center gap-2">
+            <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+            <span>Memuat percakapan...</span>
           </div>
         ) : messages.length > 0 ? (
           messages.map((message: any, index: number) => (
@@ -392,7 +344,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
                   onClick={() => handleShowBigImg(message)}
                   message={{
                     ...message,
-                    displayUrl: message.thumbUrl || message.file, // Tampilkan thumb di percakapan
+                    displayUrl: message.thumbUrl || message.file,
                   }}
                 />
               )}
@@ -431,7 +383,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
           role="menu"
         >
           <div className="py-1 px-3 sm:cursor-pointer" role="none">
-            {/* DOCUMENT */}
             <div className="hover:bg-[#111b21] rounded-md text-[#ffffff] flex gap-3 items-center py-1.5 px-2">
               <IoDocumentTextOutline size={20} className="text-[#9185ce]" />
               <input type="file" id="document" className="hidden" multiple />
@@ -440,7 +391,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
               </label>
             </div>
 
-            {/* PHOTO */}
             <div className="hover:bg-[#111b21] rounded-md text-white flex gap-3 items-center py-1.5 px-2">
               <IoMdPhotos size={20} className="text-[#007bfc]" />
               <input
@@ -456,25 +406,21 @@ const ChatPage: React.FC<ChatPageProps> = ({
               </label>
             </div>
 
-            {/* CAMERA */}
             <div className="hover:bg-[#111b21] rounded-md text-white flex gap-3 items-center py-1.5 px-2">
               <AiOutlineCamera size={20} className="text-[#c78399]" />
               <p className="text-md">camera</p>
             </div>
 
-            {/* CONTACT */}
             <div className="hover:bg-[#111b21] rounded-md text-white flex gap-3 items-center py-1.5 px-2">
               <FcContacts size={20} />
               <p className="text-md">contact</p>
             </div>
 
-            {/* POLL */}
             <div className="hover:bg-[#111b21] rounded-md text-white flex gap-3 items-center py-1.5 px-2">
               <MdPoll size={20} className="text-[#ffbc38]" />
               <p className="text-md">poll</p>
             </div>
 
-            {/* STICKER */}
             <div className="hover:bg-[#111b21] rounded-md text-white flex gap-3 items-center py-1.5 px-2">
               <PiStickerDuotone size={20} className="text-[#02a698]" />
               <input type="file" id="sticker" className="hidden" />
@@ -491,12 +437,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
             type="button"
             onClick={scrollToBottom}
             className="fixed bottom-20 right-6 z-[50] w-10 h-10 rounded-full bg-[#202c33] hover:bg-[#2a3942] text-[#aebac1] shadow-lg flex items-center justify-center transition-all duration-200 hover:scale-105 border border-[#2a3942]"
-            aria-label="Scroll ke pesan terbaru"
-            title="Ke pesan terbaru"
           >
             <ChevronDown size={20} />
           </button>
         )}
+
+        <ShowFullImg />
       </div>
     </div>
   );
@@ -504,7 +450,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
 export default React.memo(ChatPage);
 
-// Sub-komponen Video
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
