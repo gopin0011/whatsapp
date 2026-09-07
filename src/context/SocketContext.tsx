@@ -24,17 +24,26 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const isConnectedRef = useRef<boolean>(false);
 
   // Helper untuk formatting URL media & thumbnail
-  const formatMediaUrl = (urlPath: string | null | undefined, isThumb: boolean = false): string => {
+  const formatMediaUrl = (
+    urlPath: string | null | undefined, 
+    isThumb: boolean = false, 
+    msgType: string = 'text'
+  ): string => {
     if (!urlPath) return "";
     if (urlPath.startsWith("http://") || urlPath.startsWith("https://")) {
       return urlPath;
     }
+    
     const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
     const fileName = urlPath.split("/").pop() || "";
     
-    if (isThumb) {
+    // Jika tipe pesan adalah audio/voice/ptt, JANGAN PERNAH gunakan folder /thumb/
+    const isAudio = ['audio', 'voice', 'ptt'].includes(msgType);
+
+    if (isThumb && !isAudio) {
       return `${mediaBaseUrl.replace(/\/$/, "")}/media/thumb/${fileName}`;
     }
+    
     return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
   };
 
@@ -52,7 +61,7 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       const rawMediaUrl = msg.mediaUrl || msg.file || msg.data?.mediaUrl || msg.data?.file;
       const rawThumbUrl = msg.thumbUrl || msg.data?.thumbUrl || rawMediaUrl;
       const msgType = msg.mediaType || msg.msgType || msg.data?.mediaType || msg.data?.msgType || 'text';
-
+      
       if (!jid) return;
 
       await db.transaction('rw', db.messages, db.chats, async () => {
@@ -64,8 +73,8 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           timestamp: timestamp,
           isMyMsg: fromMe,
           msgType: msgType,
-          file: formatMediaUrl(rawMediaUrl, false),      // Path ke /media/
-          thumbUrl: formatMediaUrl(rawThumbUrl, true),   // Path ke /media/thumb/
+          file: formatMediaUrl(rawMediaUrl, false, msgType),
+          thumbUrl: formatMediaUrl(rawThumbUrl, true, msgType),
           sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
         });
 
@@ -100,14 +109,10 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       date: newMessage.timestamp || newMessage.data?.timestamp || new Date().toISOString(),
       isMyMsg: newMessage.fromMe ?? newMessage.data?.fromMe ?? false,
       msgType: msgType,
-      file: formatMediaUrl(rawMediaUrl, false),
-      thumbUrl: formatMediaUrl(rawThumbUrl, true),
+      file: formatMediaUrl(rawMediaUrl, false, msgType),
+      thumbUrl: formatMediaUrl(rawThumbUrl, true, msgType),
       sender: {
-        name:
-          newMessage.pushName ||
-          newMessage.data?.pushName ||
-          incomingJid.split('@')[0] ||
-          'Unknown',
+        name: newMessage.pushName || newMessage.data?.pushName || incomingJid.split('@')[0] || 'Unknown',
       },
       raw: newMessage
     };

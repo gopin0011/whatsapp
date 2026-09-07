@@ -105,21 +105,23 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
 
   // Helper untuk formatting URL media & thumbnail
-  const formatMediaUrl = (urlPath: string | null | undefined, isThumb: boolean = false): string => {
+  const formatMediaUrl = (
+    urlPath: string | null | undefined, 
+    isThumb: boolean = false, 
+    msgType: string = 'text'
+  ): string => {
     if (!urlPath) return "";
     if (urlPath.startsWith("http://") || urlPath.startsWith("https://")) {
       return urlPath;
     }
     
-    // Ambil nama file saja dari path
     const fileName = urlPath.split("/").pop() || "";
-    
-    // Jika thumbnail, arahkan ke path /media/thumb/
-    if (isThumb) {
+    const isAudio = ['audio', 'voice', 'ptt'].includes(msgType);
+
+    if (isThumb && !isAudio) {
       return `${mediaBaseUrl.replace(/\/$/, "")}/media/thumb/${fileName}`;
     }
     
-    // Untuk file asli (mediaUrl), arahkan ke path /media/
     return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
   };
 
@@ -134,19 +136,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // Formatting struktur data pesan agar kompatibel dengan komponen UI (Message, ImageComp, dsb)
   const messages = useMemo(() => {
     if (!rawMessages) return [];
-    return rawMessages.map((msg: any) => ({
-      _id: msg.id,
-      id: msg.id,
-      jid: msg.jid,
-      message: msg.message,
-      date: msg.timestamp,
-      timestamp: msg.timestamp,
-      isMyMsg: msg.isMyMsg,
-      msgType: msg.msgType || "text",
-      file: formatMediaUrl(msg.file || msg.mediaUrl, false), // URL Asli untuk Perbesar/Fullscreen
-      thumbUrl: formatMediaUrl(msg.thumbUrl || msg.file || msg.mediaUrl, true), // URL Thumbnail 200x200 untuk tampilan awal
-      sender: msg.sender || { name: msg.jid?.split("@")[0] || "Unknown" },
-    }));
+    return rawMessages.map((msg: any) => {
+      const type = msg.msgType || "text";
+      return {
+        _id: msg.id,
+        id: msg.id,
+        jid: msg.jid,
+        message: msg.message,
+        date: msg.timestamp,
+        timestamp: msg.timestamp,
+        isMyMsg: msg.isMyMsg,
+        msgType: type,
+        file: formatMediaUrl(msg.file || msg.mediaUrl, false, type),
+        thumbUrl: formatMediaUrl(msg.thumbUrl || msg.file || msg.mediaUrl, true, type),
+        sender: msg.sender || { name: msg.jid?.split("@")[0] || "Unknown" },
+      };
+    });
   }, [rawMessages, mediaBaseUrl]);
 
   const { showAttachFiles } = useSelector((state: RootState) => state.utils);
