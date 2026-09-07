@@ -1,79 +1,68 @@
 import React, { useEffect, useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db/chatDb';
 import Users from '../components/utilities/Users';
 import axios from 'axios';
 import { toast } from 'react-toastify';
-import { useSelector, useDispatch } from 'react-redux';
-import { RootState } from '../Redux/store'; // Sesuaikan path
 
-const Home = () => {
-  const [latestChats, setLatestChats] = useState<any[]>([]);
-  const [isFetchingChats, setIsFetchingChats] = useState(false);
+interface HomeProps {
+  instance?: string;
+}
 
-  // Ambil cache chat dari Redux
-  const chatCache = useSelector((state: RootState) => state.chat.byJid);
+const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
+  const [isSyncing, setIsSyncing] = useState(false);
 
-  // FETCH CHAT AWAL DARI BACKEND
+  // 1. Query reaktif dari Dexie IndexedDB (Diurutkan berdasarkan pesan terbaru)
+  const latestChats = useLiveQuery(
+    () => db.chats.orderBy('timestamp').reverse().toArray(),
+    []
+  );
+
+  // 2. Sync Awal: Ambil data dari Backend HANYA jika IndexedDB masih kosong
   useEffect(() => {
-    const fetchLatestChats = async () => {
+    const syncInitialHome = async () => {
       try {
-        setIsFetchingChats(true);
-        const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
-        const response = await axios.get(`${baseUrl}/getChat/wa-ninih`);
+        const count = await db.chats.count();
+        if (count === 0) {
+          setIsSyncing(true);
+          const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
+          const response = await axios.get(`${baseUrl}/chats/latest/${instance}`);
 
-        if (response.data?.success) {
-          setLatestChats(response.data.data || []);
+          if (response.data?.success) {
+            const rawData = response.data.data || [];
+            
+            // Mapping format data agar sesuai dengan schema ChatItem di Dexie
+            const formattedChats = rawData.map((item: any) => ({
+              jid: item.jid,
+              text: item.text || item.message || '',
+              timestamp: item.timestamp || item.date || new Date().toISOString(),
+              fromMe: item.fromMe ?? item.isMyMsg ?? false,
+              pushName: item.pushName || item.sender?.name,
+              displayName: item.displayName || item.display_name || item.pushName || item.jid.split('@')[0],
+              avatarUrl: item.avatarUrl || null,
+            }));
+
+            // Simpan secara massal ke Dexie
+            await db.chats.bulkPut(formattedChats);
+          }
         }
       } catch (error) {
-        console.error('Gagal mengambil data chat:', error);
+        console.error('Gagal menyinkronkan daftar chat awal:', error);
         toast.error('Gagal memuat pesan');
       } finally {
-        setIsFetchingChats(false);
+        setIsSyncing(false);
       }
     };
 
-    fetchLatestChats();
-  }, []);
+    syncInitialHome();
+  }, [instance]);
 
-  // KETIKA ADA PESAN BARU MASUK DI REDUX -> UPDATE TAMPILAN DAFTAR USER
-  useEffect(() => {
-    // Kueri pesan terbaru dari Redux Cache untuk memperbarui daftar kontak di Home
-    setLatestChats((prevChats) => {
-      let updatedChats = [...prevChats];
-
-      Object.keys(chatCache).forEach((jid) => {
-        const messages = chatCache[jid];
-        if (!messages || messages.length === 0) return;
-
-        const lastMsg = messages[messages.length - 1];
-        const raw = lastMsg.raw || {};
-
-        const existingIndex = updatedChats.findIndex(
-          (c) => c.jid?.toLowerCase() === jid.toLowerCase()
-        );
-
-        const updatedItem = {
-          ...(existingIndex >= 0 ? updatedChats[existingIndex] : {}),
-          jid: jid,
-          text: lastMsg.message,
-          timestamp: lastMsg.date,
-          fromMe: lastMsg.isMyMsg,
-          pushName: lastMsg.sender?.name,
-          display_name: raw.display_name || lastMsg.sender?.name || jid.split('@')[0],
-        };
-
-        if (existingIndex >= 0) {
-          updatedChats.splice(existingIndex, 1);
-        }
-        updatedChats.unshift(updatedItem);
-      });
-
-      return updatedChats;
-    });
-  }, [chatCache]);
+  // Tampilkan indikator loading jika Dexie masih inisialisasi query pertamanya
+  const isLoading = latestChats === undefined || isSyncing;
 
   return (
     <main className="relative h-screen min-h-0 overflow-hidden bg-black">
-      <Users latestChats={latestChats} isFetching={isFetchingChats} />
+      <Users latestChats={latestChats || []} isFetching={isLoading} />
     </main>
   );
 };

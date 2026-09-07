@@ -2,18 +2,7 @@ import React from 'react';
 import { Users as GroupIcon, User as UserIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import UserSkeliton from '../reuse/UserSkeliton';
-
-interface ChatItem {
-  id?: string;
-  instance: string;
-  jid: string;
-  pushName?: string;
-  contactName?: string;
-  displayName?: string;
-  avatarUrl?: string;
-  text: string;
-  timestamp: string;
-}
+import { ChatItem } from '../../db/chatDb';
 
 interface UsersProps {
   latestChats?: ChatItem[];
@@ -29,7 +18,6 @@ const Users: React.FC<UsersProps> = ({
   const handleChatClick = (chat: ChatItem) => {
     const title =
       chat.displayName ||
-      chat.contactName ||
       chat.pushName ||
       chat.jid.split('@')[0];
 
@@ -89,7 +77,6 @@ const Users: React.FC<UsersProps> = ({
 
             const title =
               chat.displayName ||
-              chat.contactName ||
               chat.pushName ||
               chat.jid.split('@')[0];
 

@@ -13,6 +13,8 @@
     "@reduxjs/toolkit": "^1.9.7",
     "axios": "^1.6.0",
     "centrifuge": "^5.7.2",
+    "dexie": "^4.4.5",
+    "dexie-react-hooks": "^4.4.0",
     "emoji-picker-react": "^4.5.16",
     "formik": "^2.4.5",
     "framer-motion": "^11.11.10",
