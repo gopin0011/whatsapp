@@ -9,6 +9,7 @@ export interface MessageItem {
   isMyMsg: boolean;
   msgType: string;
   file?: string;
+  thumbUrl?: string;
   sender: { name: string };
 }
 

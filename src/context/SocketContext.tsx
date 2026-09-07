@@ -23,15 +23,35 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   const socketBufferRef = useRef<any[]>([]);
   const isConnectedRef = useRef<boolean>(false);
 
+  // Helper untuk formatting URL media & thumbnail
+  const formatMediaUrl = (urlPath: string | null | undefined, isThumb: boolean = false): string => {
+    if (!urlPath) return "";
+    if (urlPath.startsWith("http://") || urlPath.startsWith("https://")) {
+      return urlPath;
+    }
+    const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
+    const fileName = urlPath.split("/").pop() || "";
+    
+    if (isThumb) {
+      return `${mediaBaseUrl.replace(/\/$/, "")}/media/thumb/${fileName}`;
+    }
+    return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
+  };
+
   // Helper untuk menyimpan pesan & memperbarui room terakhir di Dexie
   const saveToDexie = async (msg: any) => {
     try {
-      const msgId = msg.id || msg.key?.id || new Date().getTime().toString();
+      const msgId = msg.id || msg.key?.id || msg.data?.id || new Date().getTime().toString();
       const jid = msg.jid || msg.data?.jid;
       const text = msg.text || msg.data?.text || '';
       const timestamp = msg.timestamp || msg.data?.timestamp || new Date().toISOString();
       const fromMe = msg.fromMe ?? msg.data?.fromMe ?? false;
       const pushName = msg.pushName || msg.data?.pushName;
+      
+      // Ambil path media & thumb dari root atau dari objek inner msg.data
+      const rawMediaUrl = msg.mediaUrl || msg.file || msg.data?.mediaUrl || msg.data?.file;
+      const rawThumbUrl = msg.thumbUrl || msg.data?.thumbUrl || rawMediaUrl;
+      const msgType = msg.mediaType || msg.msgType || msg.data?.mediaType || msg.data?.msgType || 'text';
 
       if (!jid) return;
 
@@ -43,8 +63,9 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
           message: text,
           timestamp: timestamp,
           isMyMsg: fromMe,
-          msgType: msg.mediaType || 'text',
-          file: msg.mediaUrl,
+          msgType: msgType,
+          file: formatMediaUrl(rawMediaUrl, false),      // Path ke /media/
+          thumbUrl: formatMediaUrl(rawThumbUrl, true),   // Path ke /media/thumb/
           sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
         });
 
@@ -63,30 +84,24 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     }
   };
 
-  // Proses dan flush buffer saat socket reconnect
-  const processBuffer = async () => {
-    if (socketBufferRef.current.length > 0) {
-      const queue = [...socketBufferRef.current];
-      socketBufferRef.current = [];
-      for (const msg of queue) {
-        await saveToDexie(msg);
-      }
-    }
-  };
-
   // Dispatch ke Redux sekaligus Simpan/Buffer ke Dexie
   const handleIncomingMessage = (newMessage: any) => {
     const incomingJid = newMessage.jid || newMessage.data?.jid;
     if (!incomingJid) return;
 
+    const rawMediaUrl = newMessage.mediaUrl || newMessage.file || newMessage.data?.mediaUrl || newMessage.data?.file;
+    const rawThumbUrl = newMessage.thumbUrl || newMessage.data?.thumbUrl || rawMediaUrl;
+    const msgType = newMessage.mediaType || newMessage.msgType || newMessage.data?.mediaType || newMessage.data?.msgType || 'text';
+
     // Formatter data untuk Redux State
     const formattedMsg = {
-      _id: newMessage.id || newMessage.key?.id || new Date().getTime().toString(),
+      _id: newMessage.id || newMessage.key?.id || newMessage.data?.id || new Date().getTime().toString(),
       message: newMessage.text || newMessage.data?.text || '',
       date: newMessage.timestamp || newMessage.data?.timestamp || new Date().toISOString(),
       isMyMsg: newMessage.fromMe ?? newMessage.data?.fromMe ?? false,
-      msgType: newMessage.mediaType || 'text',
-      file: newMessage.mediaUrl,
+      msgType: msgType,
+      file: formatMediaUrl(rawMediaUrl, false),
+      thumbUrl: formatMediaUrl(rawThumbUrl, true),
       sender: {
         name:
           newMessage.pushName ||
@@ -105,6 +120,17 @@ export const SocketProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       socketBufferRef.current.push(newMessage);
     } else {
       saveToDexie(newMessage);
+    }
+  };
+
+  // Proses dan flush buffer saat socket reconnect
+  const processBuffer = async () => {
+    if (socketBufferRef.current.length > 0) {
+      const queue = [...socketBufferRef.current];
+      socketBufferRef.current = [];
+      for (const msg of queue) {
+        await saveToDexie(msg);
+      }
     }
   };
 
