@@ -10,14 +10,18 @@ import MsgRecoder from './MsgRecoder';
 
 import { useLocation } from 'react-router-dom';
 
-const Chat = ({
-  handleSendOffer,
-  handleOffer,
-  rejectCall
-}: {
+interface ChatProps {
+  instance?: string;
   handleSendOffer: () => void;
   handleOffer: () => void;
   rejectCall: () => void;
+}
+
+const Chat: React.FC<ChatProps> = ({
+  instance = 'wa-ninih',
+  handleSendOffer,
+  handleOffer,
+  rejectCall
 }) => {
 
   const location = useLocation();
@@ -133,6 +137,7 @@ const Chat = ({
         "
       >
         <ChatPage
+          instance={instance}
           rejectCall={rejectCall}
           handleOffer={handleOffer}
           scrollToMessage={scrollToMessage}

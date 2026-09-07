@@ -3,6 +3,7 @@ import Dexie, { Table } from 'dexie';
 // 1. Interface untuk item riwayat pesan
 export interface MessageItem {
   id: string;
+  instance: string;
   jid: string;
   message: string;
   timestamp: string;
@@ -15,13 +16,13 @@ export interface MessageItem {
 
 // 2. Interface untuk item daftar chat room
 export interface ChatItem {
+  instance?: string;
   jid: string;
   text: string;
   timestamp: string;
   fromMe: boolean;
   pushName?: string;
   displayName: string;
-  instance?: string;
   avatarUrl?: string;
 }
 
@@ -35,8 +36,8 @@ export class WhatsAppOfflineDB extends Dexie {
     
     // Indeks pencarian disesuaikan dengan milikmu
     this.version(1).stores({
-      chats: 'jid, timestamp, displayName',
-      messages: 'id, jid, timestamp'
+      chats: '[instance+jid], instance, timestamp, [instance+timestamp], displayName',
+      messages: 'id, [instance+jid], instance, timestamp'
     });
   }
 }

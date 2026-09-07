@@ -6,7 +6,7 @@ import React, {
 } from "react";
 
 import { useSelector, useDispatch } from "react-redux";
-import { useParams, useLocation } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import axios from "axios";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/chatDb";
@@ -98,14 +98,17 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   // =========================================================
-  // AMBIL PESAN DARI DEXIE (undefined SAAT LOADING awal)
+  // 1. QUERY MULTI-INSTANCE (FILTER INSTANCE + JID)
   // =========================================================
   const rawMessages = useLiveQuery(
-    () => db.messages.where("jid").equals(realJid).sortBy("timestamp"),
-    [realJid]
+    () =>
+      db.messages
+        .where("[instance+jid]")
+        .equals([instance, realJid])
+        .sortBy("timestamp"),
+    [instance, realJid]
   );
 
-  // Status loading IndexedDB
   const isDexieLoading = rawMessages === undefined;
 
   const messages = useMemo(() => {
@@ -115,6 +118,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       return {
         _id: msg.id,
         id: msg.id,
+        instance: msg.instance,
         jid: msg.jid,
         message: msg.message,
         date: msg.timestamp,
@@ -132,13 +136,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { startCall } = useSelector((state: RootState) => state.auth);
 
   // =========================================================
-  // FETCH HISTORY JIKA DEXIE KOSONG
+  // 2. FETCH HISTORY BERDASARKAN INSTANCE & JID
   // =========================================================
   useEffect(() => {
     const fetchChatHistory = async () => {
       if (!realJid || isDexieLoading) return;
 
-      // Cek jika di IndexedDB memang tidak ada data
+      // Cek apakah pesan untuk instance + jid ini sudah ada di Dexie
       if (messages.length === 0) {
         try {
           setLoadingApi(true);
@@ -150,6 +154,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
           if (response.data?.success) {
             const formattedMessages = response.data.data.map((chat: any) => ({
               id: chat.id || chat._id || new Date().getTime().toString(),
+              instance: instance, // PERBAIKAN: Sertakan instance di tiap record
               jid: chat.jid || realJid,
               message: chat.text || chat.message || "",
               timestamp: chat.timestamp || chat.date || new Date().toISOString(),
@@ -179,9 +184,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     fetchChatHistory();
   }, [realJid, instance, isDexieLoading, messages.length]);
 
-  // =========================================================
-  // FIX: LOGIKA INITIAL LOADING
-  // =========================================================
   const isInitialLoading = isDexieLoading || (loadingApi && messages.length === 0);
 
   const getScrollContainer = () => {
@@ -204,7 +206,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         setShowScrollButton(false);
       });
     });
-  }, [messages.length, jid]);
+  }, [messages.length, jid, instance]);
 
   useEffect(() => {
     const container = getScrollContainer();
@@ -225,7 +227,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return () => {
       container.removeEventListener("scroll", handleScroll);
     };
-  }, [messages.length, jid]);
+  }, [messages.length, jid, instance]);
 
   const scrollToBottom = () => {
     const container = getScrollContainer();

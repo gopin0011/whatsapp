@@ -12,17 +12,17 @@ interface HomeProps {
 const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // 1. Query reaktif dari Dexie IndexedDB (Diurutkan berdasarkan pesan terbaru)
+  // 1. Query reaktif spesifik BERDASARKAN INSTANCE yang aktif
   const latestChats = useLiveQuery(
-    () => db.chats.orderBy('timestamp').reverse().toArray(),
-    []
+    () => db.chats.where('instance').equals(instance).sortBy('timestamp').then(res => res.reverse()),
+    [instance]
   );
 
-  // 2. Sync Awal: Ambil data dari Backend HANYA jika IndexedDB masih kosong
+  // 2. Sync Awal: Cek IndexedDB untuk instance ini
   useEffect(() => {
     const syncInitialHome = async () => {
       try {
-        const count = await db.chats.count();
+        const count = await db.chats.where('instance').equals(instance).count();
         if (count === 0) {
           setIsSyncing(true);
           const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
@@ -31,8 +31,8 @@ const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
           if (response.data?.success) {
             const rawData = response.data.data || [];
             
-            // Mapping format data agar sesuai dengan schema ChatItem di Dexie
             const formattedChats = rawData.map((item: any) => ({
+              instance: instance, // Simpan ID instance
               jid: item.jid,
               text: item.text || item.message || '',
               timestamp: item.timestamp || item.date || new Date().toISOString(),
@@ -42,7 +42,6 @@ const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
               avatarUrl: item.avatarUrl || null,
             }));
 
-            // Simpan secara massal ke Dexie
             await db.chats.bulkPut(formattedChats);
           }
         }
@@ -57,7 +56,6 @@ const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
     syncInitialHome();
   }, [instance]);
 
-  // Tampilkan indikator loading jika Dexie masih inisialisasi query pertamanya
   const isLoading = latestChats === undefined || isSyncing;
 
   return (
