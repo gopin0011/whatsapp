@@ -472,12 +472,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
 export default React.memo(ChatPage);
 
+// KOMPONEN VIDEO MESSAGE (Di bagian bawah ChatPage.tsx)
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [imgError, setImgError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
+  const mediaBaseUrl =
+    import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
 
   const videoUrl = message.file?.startsWith("http")
     ? message.file
@@ -496,59 +498,84 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
     }, 50);
   };
 
-  const formattedTime = new Date(message.timestamp || message.date).toLocaleTimeString([], {
+  const formattedTime = new Date(
+    message.timestamp || message.date
+  ).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   });
 
-  const hasCustomCaption = 
-    message.message && 
-    !["🎥 Video", "📷 Foto", "📄 Dokumen", "🎨 Stiker"].includes(message.message.trim());
+  const hasCustomCaption =
+    message.message &&
+    !["🎥 Video", "📷 Foto", "📄 Dokumen", "🎨 Stiker"].includes(
+      message.message.trim()
+    );
 
   return (
-    <div className={`flex ${message.isMyMsg ? "justify-end" : "justify-start"} my-1`}>
+    <div
+      className={`flex ${
+        message.isMyMsg ? "justify-end" : "justify-start"
+      } my-1`}
+    >
       <div
-        className={`relative w-[280px] sm:w-[340px] p-1.5 rounded-lg shadow-sm ${
+        className={`relative w-[280px] sm:w-[330px] p-1.5 rounded-lg shadow-sm ${
           message.isMyMsg ? "bg-[#005c4b]" : "bg-[#202c33]"
         }`}
       >
         {!isPlaying ? (
+          /* CONTAINER THUMBNAIL VIDEO (PORTRAIT SUPPORT DENGAN DOUBLE IMAGE) */
           <div
             onClick={handlePlayClick}
-            className="relative w-full aspect-video bg-[#111b21] rounded-md overflow-hidden cursor-pointer group border border-[#222d34]/50 flex items-center justify-center"
+            className="relative w-full h-[320px] sm:h-[360px] bg-[#111b21] rounded-md overflow-hidden cursor-pointer group border border-[#222d34]/40 flex items-center justify-center"
           >
             {thumbUrl && !imgError ? (
-              <img
-                src={thumbUrl}
-                alt="Video Thumbnail"
-                onError={() => setImgError(true)}
-                className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-              />
+              <>
+                {/* 1. BACKGROUND BLUR (Mengisi seluruh frame portrait) */}
+                <img
+                  src={thumbUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-50"
+                />
+
+                {/* OVERLAY KARAKTER GELAP */}
+                <div className="absolute inset-0 bg-black/30" />
+
+                {/* 2. FOREGROUND THUMBNAIL (Gambar Asli Portrait di Tengah) */}
+                <img
+                  src={thumbUrl}
+                  alt="Video Thumbnail"
+                  onError={() => setImgError(true)}
+                  className="relative z-10 max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-[1.02]"
+                />
+              </>
             ) : (
               <div className="absolute inset-0 bg-[#1f2c34] flex items-center justify-center text-gray-500 text-xs">
                 No Thumbnail
               </div>
             )}
 
-            <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-all" />
-
-            <div className="w-12 h-12 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-10 border border-white/20 backdrop-blur-sm">
+            {/* TOMBOL PLAY MELAYANG */}
+            <div className="w-12 h-12 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-20 border border-white/20 backdrop-blur-sm shadow-md">
               <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-white border-b-[8px] border-b-transparent ml-1" />
             </div>
 
-            <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-[10px] px-1.5 py-0.5 rounded text-white/90 font-medium z-10 flex items-center gap-1">
+            {/* BADGE "VIDEO" */}
+            <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-[10px] px-1.5 py-0.5 rounded text-white/90 font-medium z-20 flex items-center gap-1">
               <span>▶</span> Video
             </div>
 
+            {/* TIMESTAMP (JIKA TANPA CAPTION) */}
             {!hasCustomCaption && (
-              <div className="absolute bottom-1.5 right-2 bg-black/50 px-1.5 py-0.5 rounded text-[10px] text-white/80 z-10">
+              <div className="absolute bottom-1.5 right-2 bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded text-[10px] text-white/80 z-20">
                 {formattedTime}
               </div>
             )}
           </div>
         ) : (
-          <div className="relative w-full aspect-video bg-black rounded-md overflow-hidden">
+          /* PLAYER VIDEO SAAT DIKLIK PLAY */
+          <div className="relative w-full h-[240px] sm:h-[280px] bg-black rounded-md overflow-hidden">
             <video
               ref={videoRef}
               src={videoUrl}
@@ -562,10 +589,15 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
           </div>
         )}
 
+        {/* CAPTION PESAN VIDEO */}
         {hasCustomCaption ? (
           <div className="flex justify-between items-end gap-2 pt-1.5 px-1">
-            <p className="text-sm text-white/90 break-words leading-tight">{message.message}</p>
-            <span className="text-[10px] text-white/60 whitespace-nowrap self-end">{formattedTime}</span>
+            <p className="text-sm text-white/90 break-words leading-tight">
+              {message.message}
+            </p>
+            <span className="text-[10px] text-white/60 whitespace-nowrap self-end">
+              {formattedTime}
+            </span>
           </div>
         ) : isPlaying ? (
           <div className="flex justify-end pt-1 px-1">
