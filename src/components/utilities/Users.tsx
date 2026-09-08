@@ -2,6 +2,7 @@ import React from 'react';
 import { Users as GroupIcon, User as UserIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import UserSkeliton from '../reuse/UserSkeliton';
+import SyncIndicator from '../reuse/SyncIndicator';
 import { ChatItem } from '../../db/chatDb';
 
 interface UsersProps {
@@ -73,10 +74,7 @@ const Users: React.FC<UsersProps> = ({
           //     <UserSkeliton key={index} />
           //   ))}
           // </div>
-          <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
-            <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
-            <span>Menyinkronkan pesan...</span>
-          </div>
+          <SyncIndicator position="bottom-center" />
         )}
 
         {/* 🟢 2. DAFTAR CHAT (TETAP TAMPIL TANPA TERHALANG isFetching) */}

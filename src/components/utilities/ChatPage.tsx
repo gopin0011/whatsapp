@@ -29,6 +29,7 @@ import Audio from "./Audio";
 import IncomingCall from "../cards/IncommingCall";
 import { ChevronDown } from "lucide-react";
 import ShowFullImg from "./ShowFullImg";
+import SyncIndicator from '../reuse/SyncIndicator';
 
 const getRandomColors = (
   count: number,
@@ -306,10 +307,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       className="relative w-full min-h-full bg-transparent text-white"
     >
       {isSyncing && (
-        <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
-          <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
-          <span>Menyinkronkan pesan...</span>
-        </div>
+        <SyncIndicator position="bottom-center" />
       )}
 
       {startCall?.call && (
