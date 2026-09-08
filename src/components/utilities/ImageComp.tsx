@@ -30,7 +30,7 @@ const ImageComp: React.FC<ImageCompProps> = ({ onClick, message }) => {
         />
 
         {/* Teks caption/pesan jika ada */}
-        {message.message && message.message !== "📷 Foto" && (
+        {message.message && (message.message !== "📷 Foto" && message.message !== "🎥 Video") && (
           <p className="text-sm text-white px-1 pt-1.5 break-words max-w-[320px]">
             {message.message}
           </p>

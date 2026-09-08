@@ -66,10 +66,14 @@ const Users: React.FC<UsersProps> = ({
       {/* List Chat */}
       <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
         {isFetching ? (
-          <div>
-            {skeliton.map((_, index) => (
-              <UserSkeliton key={index} />
-            ))}
+          // <div>
+          //   {skeliton.map((_, index) => (
+          //     <UserSkeliton key={index} />
+          //   ))}
+          // </div>
+          <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
+            <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
+            <span>Menyinkronkan pesan...</span>
           </div>
         ) : latestChats.length > 0 ? (
           latestChats.map((chat) => {

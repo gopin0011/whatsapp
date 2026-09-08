@@ -59,6 +59,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
   handleOffer = () => {},
   rejectCall = () => {},
 }) => {
+  // 1. State untuk mengontrol berapa banyak pesan yang ditampilkan
+  const [limit, setLimit] = useState(40);
+  const [isFetchingMore, setIsFetchingMore] = useState(false);
+
   const dispatch = useDispatch();
   const { jid } = useParams<{ jid: string }>();
 
@@ -108,15 +112,55 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // =========================================================
   // 1. QUERY MULTI-INSTANCE (FILTER INSTANCE + JID)
   // =========================================================
+  // const rawMessages = useLiveQuery(
+  //   () =>
+  //     db.messages
+  //       .where("instance")
+  //       .equals(instance)
+  //       .filter((msg) => msg.jid === realJid)
+  //       .sortBy("timestamp"),
+  //   [instance, realJid]
+  // );
+  // 2. Query Dexie: Urutkan dari TERBARU (reverse), ambil sesuai limit, lalu balikkan lagi urutannya
   const rawMessages = useLiveQuery(
-    () =>
-      db.messages
+    async () => {
+      const data = await db.messages
         .where("instance")
         .equals(instance)
         .filter((msg) => msg.jid === realJid)
-        .sortBy("timestamp"),
-    [instance, realJid]
+        .reverse() // Urutkan dari pesan paling baru
+        .limit(limit) // Batasi sesuai variabel limit (misal: 40)
+        .toArray();
+
+      return data.reverse(); // Balikkan kembali agar urutan dari lama -> baru (kronologis)
+    },
+    [instance, realJid, limit]
   );
+
+  // 3. Handler Scroll ke Atas untuk Memuat Pesan Lebih Lama
+  const handleScrollUpper = () => {
+    const container = getScrollContainer();
+    if (!container) return;
+
+    // Jika scroll menyentuh paling atas (scrollTop === 0)
+    if (container.scrollTop === 0 && !isFetchingMore && rawMessages && rawMessages.length >= limit) {
+      setIsFetchingMore(true);
+      
+      // Simpan tinggi scroll sebelum data bertambah agar posisi scroll tidak lompat
+      const previousScrollHeight = container.scrollHeight;
+
+      // Tambah limit sebanyak 40 pesan lagi
+      setLimit((prev) => prev + 40);
+
+      // Kembalikan posisi scroll ke titik semula setelah data dirender
+      requestAnimationFrame(() => {
+        if (container) {
+          container.scrollTop = container.scrollHeight - previousScrollHeight;
+        }
+        setIsFetchingMore(false);
+      });
+    }
+  };
 
   const isDexieLoading = rawMessages === undefined;
 
@@ -196,6 +240,20 @@ const ChatPage: React.FC<ChatPageProps> = ({
     };
   }, [messages.length, jid, instance]);
 
+  // 4. Pasang Event Listener Scroll
+  useEffect(() => {
+    const container = getScrollContainer();
+    if (!container) return;
+
+    container.addEventListener("scroll", handleScrollUpper);
+    return () => container.removeEventListener("scroll", handleScrollUpper);
+  }, [rawMessages, limit, isFetchingMore]);
+
+  // Reset limit kembali ke 40 jika pengguna berpindah ruang obrolan (JID berubah)
+  useEffect(() => {
+    setLimit(40);
+  }, [realJid, instance]);
+
   const scrollToBottom = () => {
     const container = getScrollContainer();
     if (!container) return;
@@ -271,9 +329,13 @@ const ChatPage: React.FC<ChatPageProps> = ({
       {/* MESSAGE CONTENT */}
       <div className="sm:px-16 px-5 py-5 sm:py-5 space-y-3 min-h-full bg-transparent">
         {isInitialLoading ? (
-          <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center gap-2">
-            <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-            <span>Memuat percakapan...</span>
+          // <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center gap-2">
+          //   <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+          //   <span>Memuat percakapan...</span>
+          // </div>
+          <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
+            <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
+            <span>Menyinkronkan pesan...</span>
           </div>
         ) : messages.length > 0 ? (
           messages.map((message: any, index: number) => (
