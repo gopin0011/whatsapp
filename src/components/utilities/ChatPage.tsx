@@ -60,7 +60,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   handleOffer = () => {},
   rejectCall = () => {},
 }) => {
-  // 🟢 1. SET LIMIT AWAL KE 50
   const [limit, setLimit] = useState(50);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
@@ -112,9 +111,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
   };
 
-  // =========================================================
-  // 🟢 2. QUERY DEXIE DENGAN LIMIT DYNAMIC
-  // =========================================================
   const rawMessages = useLiveQuery(
     async () => {
       if (!realJid) return [];
@@ -127,7 +123,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
       allMatching.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      // Cek apakah data di DB lebih banyak dari limit saat ini
       if (allMatching.length <= limit) {
         setHasMore(false);
       } else {
@@ -143,29 +138,24 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return chatContentRef.current?.parentElement as HTMLDivElement | null;
   };
 
-  // 🟢 3. HANDLER UNTUK TOMBOL/LINK "LOAD MORE"
   const handleLoadMoreClick = () => {
     const container = getScrollContainer();
     if (!container || isFetchingMore) return;
 
     setIsFetchingMore(true);
-    // Simpan tinggi scroll sebelum item baru ditambah ke DOM
     prevScrollHeightRef.current = container.scrollHeight;
 
-    // Tambah 50 pesan berikutnya
     setLimit((prev) => prev + 50);
   };
 
-  // 🟢 4. KUNCI POSISI SCROLL AGAR TIDAK BEBAS/GESER
+  // 🟢 POSISI SCROLL: HANYA MENYESUAIKAN SAAT 'LOAD MORE' DIKLIK
   useLayoutEffect(() => {
     const container = getScrollContainer();
     if (!container || !rawMessages || rawMessages.length === 0) return;
 
-    // A. Saat pertama kali masuk room chat, langsung ke paling bawah
+    // A. Saat pertama kali load, cukup tandai initial load selesai tanpa paksa scroll ke bawah
     if (isInitialLoadRef.current) {
-      container.scrollTop = container.scrollHeight;
       isInitialLoadRef.current = false;
-      setShowScrollButton(false);
       return;
     }
 
@@ -216,14 +206,12 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const isInitialLoading = isDexieLoading;
 
-  // 🟢 RESET STATE SAAT PINDAH CHAT
   useEffect(() => {
     setLimit(50);
     isInitialLoadRef.current = true;
     prevScrollHeightRef.current = 0;
   }, [realJid, instance]);
 
-  // 🟢 MONITOR TOMBOL SCROLL DOWN (Hanya untuk tombol panah bawah)
   useEffect(() => {
     const container = getScrollContainer();
     if (!container) return;
@@ -305,7 +293,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
       ref={chatContentRef}
       className="relative w-full min-h-full bg-transparent text-white"
     >
-      {/* INDIKATOR BACKGROUND SYNCING MELAYANG */}
       {isSyncing && (
         <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
           <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
@@ -313,7 +300,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
         </div>
       )}
 
-      {/* INCOMING CALL */}
       {startCall?.call && (
         <div className="absolute z-[20] top-0 left-0 right-0 w-full p-2">
           <IncomingCall
@@ -324,10 +310,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
         </div>
       )}
 
-      {/* MESSAGE CONTENT */}
       <div className="sm:px-16 px-5 py-5 sm:py-5 space-y-3 min-h-full bg-transparent">
         
-        {/* 🟢 TOMBOL / TEKS LOAD MORE DI ATAS PESAN */}
         {!isInitialLoading && messages.length > 0 && hasMore && (
           <div className="flex justify-center py-2">
             <button
@@ -355,7 +339,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
         ) : messages.length > 0 ? (
           messages.map((message: any, index: number) => (
             <div key={message._id || index}>
-              {/* DATE */}
               {isFirstMessageOfDay(
                 message,
                 index > 0 ? messages[index - 1] : null
@@ -367,12 +350,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 </div>
               )}
 
-              {/* NOTIFICATION */}
               {message.msgType === "notification" && (
                 <p className="notification">{message.message}</p>
               )}
 
-              {/* TEXT */}
               {message.msgType === "text" && (
                 <Message
                   key={message._id || index}
@@ -383,7 +364,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 />
               )}
 
-              {/* IMAGE */}
               {message.msgType === "image" && (
                 <ImageComp
                   key={message._id || index}
@@ -395,12 +375,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
                 />
               )}
 
-              {/* VIDEO */}
               {message.msgType === "video" && (
                 <VideoMessage key={index} message={message} />
               )}
 
-              {/* AUDIO */}
               {(message.msgType === "audio" ||
                 message.msgType === "voice" ||
                 message.msgType === "ptt") && (
@@ -419,7 +397,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
           </div>
         )}
 
-        {/* ATTACHMENT PANEL */}
         <div
           aria-orientation="vertical"
           aria-labelledby="menu-button"
@@ -477,7 +454,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
           </div>
         </div>
 
-        {/* SCROLL DOWN BUTTON */}
         {showScrollButton && (
           <button
             type="button"
@@ -496,7 +472,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
 export default React.memo(ChatPage);
 
-// KOMPONEN VIDEO MESSAGE
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [imgError, setImgError] = useState(false);
