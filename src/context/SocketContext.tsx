@@ -50,54 +50,81 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
   };
 
+  // Helper formatting preview text untuk UI Home jika pesan berupa media
+  const formatPreviewText = (text: string, mediaType: string) => {
+    if (text && text.trim() !== '') return text;
+
+    switch (mediaType) {
+      case 'image': return '📷 Foto';
+      case 'video': return '🎥 Video';
+      case 'audio':
+      case 'voice':
+      case 'ptt': return '🎙️ Pesan Suara';
+      case 'document': return '📄 Dokumen';
+      case 'sticker': return '🎨 Stiker';
+      case 'location': return '📍 Lokasi';
+      case 'contact': return '👤 Kontak';
+      default: return text || '';
+    }
+  };
+
   // Simpan ke Dexie
   const saveToDexie = async (msg: any) => {
     try {
       const payload = msg?.data || msg;
 
       const msgInstance = payload.instance || instance || 'wa-ninih';
-      const msgId = payload.id || payload.key?.id || new Date().getTime().toString();
+      const msgId = payload.id || payload.key?.id || `${Date.now()}_${Math.random()}`;
       const jid = payload.jid || payload.key?.remoteJid;
-      const text = payload.text || payload.message || '';
-      const timestamp = payload.timestamp || new Date().toISOString();
-      const fromMe = payload.fromMe ?? payload.isMyMsg ?? false;
-      const pushName = payload.pushName || payload.contactName || payload.displayName;
-      
-      const rawMediaUrl = payload.mediaUrl || payload.file;
-      const rawThumbUrl = payload.thumbUrl || rawMediaUrl;
-      const msgType = payload.mediaType || payload.msgType || 'text';
       
       if (!jid) {
         console.warn('⚠️ Pesan WebSocket diabaikan karena JID kosong:', payload);
         return;
       }
 
+      // Deteksi fromMe secara akurat
+      const fromMe = payload.fromMe ?? payload.key?.fromMe ?? payload.isMyMsg ?? false;
+      const rawText = payload.text || payload.message || payload.rawText || '';
+      const timestamp = payload.timestamp || payload.date || new Date().toISOString();
+      const pushName = payload.pushName || payload.contactName || payload.displayName;
+      
+      const rawMediaUrl = payload.mediaUrl || payload.file;
+      const rawThumbUrl = payload.thumbUrl || rawMediaUrl;
+      const msgType = payload.mediaType || payload.msgType || 'text';
+
+      // Format teks khusus agar di Home tidak kosong kalau kirim foto/suara
+      const displayText = payload.displayText || formatPreviewText(rawText, msgType);
+
       await db.transaction('rw', db.messages, db.chats, async () => {
         // 1. Simpan ke daftar riwayat pesan
         await db.messages.put({
-          id: msgId,
+          id: String(msgId),
           instance: msgInstance,
           jid: jid,
-          message: text,
+          message: rawText || displayText,
           timestamp: timestamp,
-          isMyMsg: fromMe,
+          isMyMsg: Boolean(fromMe),
           msgType: msgType,
           file: formatMediaUrl(rawMediaUrl, false, msgType),
           thumbUrl: formatMediaUrl(rawThumbUrl, true, msgType),
           sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
         });
 
-        // 2. Update daftar chat room utama
-        await db.chats.put({
-          instance: msgInstance,
-          jid: jid,
-          text: text,
-          timestamp: timestamp,
-          fromMe: fromMe,
-          pushName: pushName,
-          displayName: payload.displayName || pushName || jid.split('@')[0] || 'Unknown',
-          avatarUrl: payload.avatarUrl || null
-        });
+        // 2. Cek pesan terakhir di Chat Home agar tidak tertimpa pesan lama jika WebSocket urutannya tertukar
+        const existingChat = await db.chats.get([msgInstance, jid]);
+
+        if (!existingChat || new Date(timestamp).getTime() >= new Date(existingChat.timestamp).getTime()) {
+          await db.chats.put({
+            instance: msgInstance,
+            jid: jid,
+            text: displayText,
+            timestamp: timestamp,
+            fromMe: Boolean(fromMe),
+            pushName: pushName || existingChat?.pushName,
+            displayName: payload.displayName || pushName || existingChat?.displayName || jid.split('@')[0],
+            avatarUrl: payload.avatarUrl || existingChat?.avatarUrl || null
+          });
+        }
       });
 
       console.log(`✅ [${msgInstance}] Pesan dari ${jid} berhasil disimpan ke IndexedDB!`);
@@ -125,17 +152,20 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     try {
       const apiBaseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8082';
 
-      // 1. Ambil pesan paling terakhir yang tersimpan di IndexedDB Laptop/Mobile ini
-      const lastMsg = await db.messages
+      // 1. Ambil pesan paling terakhir yang tersimpan di IndexedDB milik instance ini
+      const lastMessages = await db.messages
         .where('instance')
         .equals(instance)
+        .reverse()
         .sortBy('timestamp');
 
-      const lastTimestamp = lastMsg.length > 0 
-        ? lastMsg[lastMsg.length - 1].timestamp 
-        : new Date(0).toISOString(); // Default ke waktu awal jika DB kosong
+      const lastTimestamp = lastMessages.length > 0 
+        ? lastMessages[0].timestamp 
+        : new Date(0).toISOString();
 
-      // 2. Minta ke backend: "Beri saya semua pesan setelah jam/timestamp ini"
+      console.log(`🔄 Sync missing messages sejak: ${lastTimestamp}`);
+
+      // 2. Minta ke backend
       const res = await axios.get(`${apiBaseUrl.replace(/\/$/, '')}/chats/sync`, {
         params: { 
           instance: instance, 
@@ -145,7 +175,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
       const missingMessages = res.data?.data || [];
 
-      // 3. Simpan pesan yang ketinggalan ke Dexie device ini
+      // 3. Simpan pesan yang ketinggalan ke Dexie
       if (missingMessages.length > 0) {
         console.log(`📦 Menarik ${missingMessages.length} pesan tertunda dari backend...`);
         for (const msg of missingMessages) {
@@ -163,15 +193,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       import.meta.env.VITE_API_SOCKET_URL ||
       'ws://192.168.100.245:8000/connection/websocket';
 
-    console.log('======================================');
-    console.log('🔌 CENTRIFUGO CONNECT:', wsUrl);
-    console.log('======================================');
-
     const client = new Centrifuge(wsUrl);
-
-    client.on('connecting', (ctx) => {
-      console.log('🔄 Centrifugo connecting:', ctx);
-    });
 
     client.on('connected', (ctx) => {
       console.log('✅✅✅ CENTRIFUGO CONNECTED:', ctx);
@@ -179,10 +201,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       setIsConnected(true);
       isConnectedRef.current = true;
 
-      // 1. Kuras buffer lokal frontend
       processBuffer();
-
-      // 2. Kuras antrian pesan dari backend server
       syncMissingMessagesFromBackend();
     });
 
@@ -194,14 +213,13 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     });
 
     client.on('error', (err) => {
-      console.error('❌❌❌ Centrifugo connection error:', err);
+      console.error('❌ Centrifugo connection error:', err);
     });
 
     client.connect();
     setCentrifuge(client);
 
     return () => {
-      console.log('🧹 Disconnect Centrifugo');
       client.disconnect();
     };
   }, []);
@@ -232,13 +250,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     sub.on('publication', async (ctx) => {
       console.log("📩 PESAN BARU DITERIMA DARI WEBSOCKET:", ctx.data);
 
-      // Jika socket dalam kondisi terhubung, langsung simpan
       if (isConnectedRef.current) {
         await saveToDexie(ctx.data);
       } else {
-        // Jika sedang disconnect/reconnecting, MASUKKAN KE ANTRIAN (BUFFER)
         console.warn('⚠️ Socket offline, menyimpan pesan ke antrian buffer...');
-
         socketBufferRef.current.push(ctx.data);
       }
     });

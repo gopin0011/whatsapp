@@ -25,7 +25,9 @@ const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
         const count = await db.chats.where('instance').equals(instance).count();
         if (count === 0) {
           setIsSyncing(true);
-          const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
+          const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8082';
+          
+          // Memanggil sync tanpa `since` untuk mengambil SELURUH riwayat
           const response = await axios.get(`${baseUrl.replace(/\/$/, '')}/chats/sync`, {
             params: { 
               instance: instance
@@ -36,16 +38,17 @@ const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
             const rawData = response.data.data || [];
             
             const formattedChats = rawData.map((item: any) => ({
-              instance: instance, // Simpan ID instance
+              instance: instance,
               jid: item.jid,
               text: item.text || item.message || '',
               timestamp: item.timestamp || item.date || new Date().toISOString(),
               fromMe: item.fromMe ?? item.isMyMsg ?? false,
               pushName: item.pushName || item.sender?.name,
-              displayName: item.displayName || item.display_name || item.pushName || item.jid.split('@')[0],
+              displayName: item.displayName || item.pushName || item.jid.split('@')[0],
               avatarUrl: item.avatarUrl || null,
             }));
 
+            // Simpan ke db.chats
             await db.chats.bulkPut(formattedChats);
           }
         }
