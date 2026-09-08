@@ -307,7 +307,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       className="relative w-full min-h-full bg-transparent text-white"
     >
       {isSyncing && (
-        <SyncIndicator position="bottom-center" />
+        <SyncIndicator position="bottom-right" />
       )}
 
       {startCall?.call && (

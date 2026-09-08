@@ -74,7 +74,7 @@ const Users: React.FC<UsersProps> = ({
           //     <UserSkeliton key={index} />
           //   ))}
           // </div>
-          <SyncIndicator position="bottom-center" />
+          <SyncIndicator position="bottom-right" />
         )}
 
         {/* 🟢 2. DAFTAR CHAT (TETAP TAMPIL TANPA TERHALANG isFetching) */}
