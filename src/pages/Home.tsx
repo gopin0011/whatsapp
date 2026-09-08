@@ -26,7 +26,11 @@ const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
         if (count === 0) {
           setIsSyncing(true);
           const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://localhost:8081';
-          const response = await axios.get(`${baseUrl}/chats/latest/${instance}`);
+          const response = await axios.get(`${baseUrl.replace(/\/$/, '')}/chats/sync`, {
+            params: { 
+              instance: instance
+            }
+          });
 
           if (response.data?.success) {
             const rawData = response.data.data || [];

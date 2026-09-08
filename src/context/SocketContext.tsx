@@ -124,23 +124,36 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   const syncMissingMessagesFromBackend = async () => {
     try {
       const apiBaseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8082';
-      console.log(`🔄 Mengontak backend untuk flush queue instance [${instance}]...`);
 
-      const res = await axios.post(`${apiBaseUrl.replace(/\/$/, '')}/chats/flush-queue/${instance}`);
-      
-      const pendingData = res.data?.data;
+      // 1. Ambil pesan paling terakhir yang tersimpan di IndexedDB Laptop/Mobile ini
+      const lastMsg = await db.messages
+        .where('instance')
+        .equals(instance)
+        .sortBy('timestamp');
 
-      if (Array.isArray(pendingData) && pendingData.length > 0) {
-        console.log(`📦 Diterima ${pendingData.length} pesan tertunda dari backend, menyimpan ke Dexie...`);
-        for (const msg of pendingData) {
+      const lastTimestamp = lastMsg.length > 0 
+        ? lastMsg[lastMsg.length - 1].timestamp 
+        : new Date(0).toISOString(); // Default ke waktu awal jika DB kosong
+
+      // 2. Minta ke backend: "Beri saya semua pesan setelah jam/timestamp ini"
+      const res = await axios.get(`${apiBaseUrl.replace(/\/$/, '')}/chats/sync`, {
+        params: { 
+          instance: instance, 
+          since: lastTimestamp 
+        }
+      });
+
+      const missingMessages = res.data?.data || [];
+
+      // 3. Simpan pesan yang ketinggalan ke Dexie device ini
+      if (missingMessages.length > 0) {
+        console.log(`📦 Menarik ${missingMessages.length} pesan tertunda dari backend...`);
+        for (const msg of missingMessages) {
           await saveToDexie(msg);
         }
-        console.log('✨ Berhasil menyimpan seluruh antrian backend ke Dexie!');
-      } else {
-        console.log('👍 Tidak ada pesan tertunda di backend.');
       }
     } catch (error) {
-      console.error('❌ Gagal sync missing messages dari backend:', error);
+      console.error('❌ Gagal sync pesan dari backend:', error);
     }
   };
 
