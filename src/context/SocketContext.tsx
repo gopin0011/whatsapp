@@ -144,7 +144,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   const syncMissingMessagesFromBackend = async () => {
     try {
       setIsSyncing(true);
-      isSyncingRef.current = true; // Set Ref ke true agar WebSocket menahan pesan
+      isSyncingRef.current = true;
 
       const apiBaseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8082';
       const totalMessages = await db.messages.where('instance').equals(instance).count();
@@ -160,10 +160,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
         if (lastMessages.length > 0) {
           queryParams.since = lastMessages[0].timestamp;
-          console.log(`🔄 Delta sync sejak: ${queryParams.since}`);
         }
-      } else {
-        console.log(`📦 DB Kosong! Mengunduh seluruh riwayat awal untuk instance: ${instance}`);
       }
 
       const res = await axios.get(`${apiBaseUrl.replace(/\/$/, '')}/chats/sync`, {
@@ -173,18 +170,73 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       const missingMessages = res.data?.data || [];
 
       if (Array.isArray(missingMessages) && missingMessages.length > 0) {
-        console.log(`✨ Memproses ${missingMessages.length} pesan dari backend...`);
+        console.log(`✨ Memproses ${missingMessages.length} pesan dari backend (Bulk Insert)...`);
+
+        // 🟢 FORMAT DATA SECARA BATCH
+        const formattedMessages: any[] = [];
+        const chatMap = new Map<string, any>();
+
         for (const msg of missingMessages) {
-          await saveToDexie(msg);
+          const payload = msg?.data || msg;
+          const msgInstance = payload.instance || instance || 'wa-ninih';
+          const msgId = payload.id || payload.key?.id || `${Date.now()}_${Math.random()}`;
+          const jid = payload.jid || payload.key?.remoteJid;
+
+          if (!jid) continue;
+
+          const fromMe = payload.fromMe ?? payload.key?.fromMe ?? payload.isMyMsg ?? false;
+          const rawText = payload.text || payload.message || payload.rawText || '';
+          const timestamp = payload.timestamp || payload.date || new Date().toISOString();
+          const pushName = payload.pushName || payload.contactName || payload.displayName;
+          const rawMediaUrl = payload.mediaUrl || payload.file;
+          const rawThumbUrl = payload.thumbUrl || rawMediaUrl;
+          const msgType = payload.mediaType || payload.msgType || 'text';
+          const displayText = payload.displayText || formatPreviewText(rawText, msgType);
+
+          // Susun array pesan
+          formattedMessages.push({
+            id: String(msgId),
+            instance: msgInstance,
+            jid: jid,
+            message: rawText || displayText,
+            timestamp: timestamp,
+            isMyMsg: Boolean(fromMe),
+            msgType: msgType,
+            file: formatMediaUrl(rawMediaUrl, false, msgType),
+            thumbUrl: formatMediaUrl(rawThumbUrl, true, msgType),
+            sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
+          });
+
+          // Ambil pesan terbaru per-chat untuk update header daftar chat
+          const chatKey = `${msgInstance}_${jid}`;
+          const existingChat = chatMap.get(chatKey);
+          if (!existingChat || new Date(timestamp).getTime() >= new Date(existingChat.timestamp).getTime()) {
+            chatMap.set(chatKey, {
+              instance: msgInstance,
+              jid: jid,
+              text: displayText,
+              timestamp: timestamp,
+              fromMe: Boolean(fromMe),
+              pushName: pushName,
+              displayName: payload.displayName || pushName || jid.split('@')[0],
+              avatarUrl: payload.avatarUrl || null
+            });
+          }
         }
+
+        // 🟢 SIMPAN SEKALIGUS (BULK) KE DEXIE
+        await db.transaction('rw', db.messages, db.chats, async () => {
+          await db.messages.bulkPut(formattedMessages);
+          await db.chats.bulkPut(Array.from(chatMap.values()));
+        });
+
+        console.log('✅ Sukses menyimpan puluhan ribu data ke Dexie!');
       }
     } catch (error) {
       console.error('❌ Gagal sync pesan dari backend:', error);
     } finally {
       setIsSyncing(false);
-      isSyncingRef.current = false; // Sync selesai!
-      
-      // 🟢 Kuras pesan WebSocket yang terakumulasi/menunggu selama sync berlangsung
+      isSyncingRef.current = false;
       await processBuffer();
     }
   };
