@@ -110,20 +110,24 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   // =========================================================
-  // 🟢 1. QUERY DEXIE TERBARU (LOAD 40 TERBARU + PAGINATION)
+  // 🟢 1. QUERY DEXIE TERBARU (DIURUTKAN SESUAI TIMESTAMP LAMA -> BARU)
   // =========================================================
   const rawMessages = useLiveQuery(
     async () => {
       if (!realJid) return [];
-      const data = await db.messages
+      
+      // Filter & ambil data, lalu urutkan secara eksplisit berdasarkan timestamp
+      const allMatching = await db.messages
         .where("instance")
         .equals(instance)
         .filter((msg) => msg.jid === realJid)
-        .reverse() // Urutkan dari pesan paling baru
-        .limit(limit) // Ambil sejumlah limit (40)
         .toArray();
 
-      return data.reverse(); // Balikkan lagi agar urutannya kronologis (lama -> baru)
+      // Urutkan dari yang tertua (awal) ke yang terbaru (akhir)
+      allMatching.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+      // Ambil N pesan TERBARU (di bagian akhir array)
+      return allMatching.slice(-limit);
     },
     [instance, realJid, limit]
   );
@@ -322,10 +326,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       {/* MESSAGE CONTENT */}
       <div className="sm:px-16 px-5 py-5 sm:py-5 space-y-3 min-h-full bg-transparent">
         {isInitialLoading ? (
-          <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center gap-2">
-            <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-            <span>Memuat percakapan...</span>
-          </div>
+          <></>
         ) : messages.length > 0 ? (
           messages.map((message: any, index: number) => (
             <div key={message._id || index}>
