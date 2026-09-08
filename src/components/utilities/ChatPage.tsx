@@ -519,63 +519,63 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
       } my-1`}
     >
       <div
-        className={`relative w-[280px] sm:w-[330px] p-1.5 rounded-lg shadow-sm ${
+        className={`relative w-[280px] sm:w-[320px] p-1.5 rounded-lg shadow-sm ${
           message.isMyMsg ? "bg-[#005c4b]" : "bg-[#202c33]"
         }`}
       >
         {!isPlaying ? (
-          /* CONTAINER THUMBNAIL VIDEO (PORTRAIT SUPPORT DENGAN DOUBLE IMAGE) */
+          /* CONTAINER THUMBNAIL VIDEO (FIXED CENTER LAYOUT) */
           <div
             onClick={handlePlayClick}
-            className="relative w-full h-[320px] sm:h-[360px] bg-[#111b21] rounded-md overflow-hidden cursor-pointer group border border-[#222d34]/40 flex items-center justify-center"
+            className="relative w-full h-[320px] sm:h-[360px] bg-[#111b21] rounded-md overflow-hidden cursor-pointer group border border-[#222d34]/40"
           >
             {thumbUrl && !imgError ? (
               <>
-                {/* 1. BACKGROUND BLUR (Mengisi seluruh frame portrait) */}
+                {/* 1. BACKGROUND BLUR (PENUH DI BELAKANG) */}
                 <img
                   src={thumbUrl}
                   alt=""
                   aria-hidden="true"
-                  className="absolute inset-0 w-full h-full object-cover blur-lg scale-110 opacity-50"
+                  className="absolute inset-0 w-full h-full object-cover blur-xl scale-125 opacity-40 z-0"
                 />
 
-                {/* OVERLAY KARAKTER GELAP */}
-                <div className="absolute inset-0 bg-black/30" />
+                {/* OVERLAY LAPISAN GELAP */}
+                <div className="absolute inset-0 bg-black/20 z-0" />
 
-                {/* 2. FOREGROUND THUMBNAIL (Gambar Asli Portrait di Tengah) */}
+                {/* 2. GAMBAR UTAMA (PASTI PRESISI DI TENGAH LAYAR) */}
                 <img
                   src={thumbUrl}
                   alt="Video Thumbnail"
                   onError={() => setImgError(true)}
-                  className="relative z-10 max-w-full max-h-full object-contain transition-transform duration-300 group-hover:scale-[1.02]"
+                  className="absolute inset-0 m-auto max-w-full max-h-full object-contain z-10 transition-transform duration-300 group-hover:scale-105"
                 />
               </>
             ) : (
-              <div className="absolute inset-0 bg-[#1f2c34] flex items-center justify-center text-gray-500 text-xs">
+              <div className="absolute inset-0 flex items-center justify-center text-gray-500 text-xs z-0">
                 No Thumbnail
               </div>
             )}
 
-            {/* TOMBOL PLAY MELAYANG */}
-            <div className="w-12 h-12 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-20 border border-white/20 backdrop-blur-sm shadow-md">
-              <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-white border-b-[8px] border-b-transparent ml-1" />
+            {/* 3. TOMBOL PLAY (KUNCI DI CENTER MATRIX Z-30) */}
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-30 border border-white/30 backdrop-blur-md shadow-lg">
+              <div className="w-0 h-0 border-t-[7px] border-t-transparent border-l-[13px] border-l-white border-b-[7px] border-b-transparent ml-1" />
             </div>
 
             {/* BADGE "VIDEO" */}
-            <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-[10px] px-1.5 py-0.5 rounded text-white/90 font-medium z-20 flex items-center gap-1">
+            <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-[10px] px-2 py-0.5 rounded text-white/90 font-medium z-30 flex items-center gap-1 border border-white/10">
               <span>▶</span> Video
             </div>
 
             {/* TIMESTAMP (JIKA TANPA CAPTION) */}
             {!hasCustomCaption && (
-              <div className="absolute bottom-1.5 right-2 bg-black/50 backdrop-blur-md px-1.5 py-0.5 rounded text-[10px] text-white/80 z-20">
+              <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] text-white/90 z-30 border border-white/10">
                 {formattedTime}
               </div>
             )}
           </div>
         ) : (
-          /* PLAYER VIDEO SAAT DIKLIK PLAY */
-          <div className="relative w-full h-[240px] sm:h-[280px] bg-black rounded-md overflow-hidden">
+          /* PLAYER VIDEO */
+          <div className="relative w-full h-[320px] sm:h-[360px] bg-black rounded-md overflow-hidden">
             <video
               ref={videoRef}
               src={videoUrl}
