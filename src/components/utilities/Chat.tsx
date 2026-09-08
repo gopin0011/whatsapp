@@ -167,3 +167,28 @@ const Chat: React.FC<ChatProps> = ({
 };
 
 export default React.memo(Chat);
+
+/*
+Helper Kirim Pesan dengan Fallback Antrian Offline
+export const sendMessageWithQueue = async (messagePayload: any) => {
+  const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8081';
+
+  try {
+    if (!navigator.onLine) {
+      throw new Error('Offline');
+    }
+    // Coba kirim langsung
+    await axios.post(`${baseUrl}/chats/send`, messagePayload);
+  } catch (error) {
+    console.warn('⚠️ Gagal terkirim secara langsung, menyimpan ke antrian Outbox Dexie...');
+    
+    // Simpan ke antrian IndexedDB jika gagal / offline
+    await db.outbox.add({
+      payload: messagePayload,
+      timestamp: new Date().toISOString(),
+      instance: messagePayload.instance
+    });
+  }
+};
+
+*/
