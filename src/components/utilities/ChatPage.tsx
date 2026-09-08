@@ -1,6 +1,5 @@
 import React, {
   useEffect,
-  useLayoutEffect,
   useState,
   useMemo,
   useRef,
@@ -8,7 +7,6 @@ import React, {
 
 import { useSelector, useDispatch } from "react-redux";
 import { useParams } from "react-router-dom";
-import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/chatDb";
 import { useSocket } from "../../context/SocketContext";
 
@@ -60,16 +58,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
   handleOffer = () => {},
   rejectCall = () => {},
 }) => {
-  const [limit, setLimit] = useState(50);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [offset, setOffset] = useState(0);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
-
-  const isInitialLoadRef = useRef(true);
-  const prevScrollHeightRef = useRef<number>(0);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
   const dispatch = useDispatch();
   const { jid } = useParams<{ jid: string }>();
-
   const { isSyncing } = useSocket();
 
   const realJid = useMemo(() => {
@@ -111,9 +107,42 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
   };
 
-  const rawMessages = useLiveQuery(
-    async () => {
-      if (!realJid) return [];
+  const transformMessage = (msg: any) => {
+    let rawType = (msg.msgType || msg.mediaType || "text").toLowerCase();
+
+    let normalizedType = "text";
+    if (rawType.includes("image")) normalizedType = "image";
+    else if (rawType.includes("video")) normalizedType = "video";
+    else if (rawType.includes("audio") || rawType.includes("voice") || rawType.includes("ptt")) normalizedType = "audio";
+    else if (rawType.includes("sticker")) normalizedType = "sticker";
+
+    return {
+      _id: msg.id,
+      id: msg.id,
+      instance: msg.instance,
+      jid: msg.jid,
+      message: msg.message || msg.text || "",
+      date: msg.timestamp,
+      timestamp: msg.timestamp,
+      isMyMsg: msg.isMyMsg,
+      msgType: normalizedType,
+      file: formatMediaUrl(msg.file || msg.mediaUrl, false, normalizedType),
+      thumbUrl: formatMediaUrl(msg.thumbUrl || msg.file || msg.mediaUrl, true, normalizedType),
+      sender: msg.sender || { name: msg.jid?.split("@")[0] || "Unknown" },
+    };
+  };
+
+  const getScrollContainer = () => {
+    return chatContentRef.current?.parentElement as HTMLDivElement | null;
+  };
+
+  // 1. INITIAL FETCH PESAN DARI DEXIE
+  useEffect(() => {
+    let isMounted = true;
+    if (!realJid) return;
+
+    const loadInitialMessages = async () => {
+      setIsInitialLoading(true);
       
       const allMatching = await db.messages
         .where("instance")
@@ -123,94 +152,77 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
       allMatching.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      if (allMatching.length <= limit) {
+      if (!isMounted) return;
+
+      const PAGE_SIZE = 50;
+      const totalCount = allMatching.length;
+      
+      if (totalCount <= PAGE_SIZE) {
         setHasMore(false);
+        const formatted = allMatching.map(transformMessage);
+        setMessages(formatted);
+        setOffset(0);
       } else {
         setHasMore(true);
+        const startIndex = totalCount - PAGE_SIZE;
+        const initialChunk = allMatching.slice(startIndex);
+        const formatted = initialChunk.map(transformMessage);
+        setMessages(formatted);
+        setOffset(startIndex);
       }
 
-      return allMatching.slice(-limit);
-    },
-    [instance, realJid, limit]
-  );
+      setIsInitialLoading(false);
+    };
 
-  const getScrollContainer = () => {
-    return chatContentRef.current?.parentElement as HTMLDivElement | null;
-  };
+    loadInitialMessages();
 
-  const handleLoadMoreClick = () => {
+    return () => {
+      isMounted = false;
+    };
+  }, [realJid, instance]);
+
+  // 2. FUNGSI APPEND/PREPEND UNTUK MEMUAT PESAN SEBELUMNYA
+  const handleLoadMoreClick = async () => {
     const container = getScrollContainer();
-    if (!container || isFetchingMore) return;
+    if (!container || isFetchingMore || !hasMore || offset <= 0) return;
 
     setIsFetchingMore(true);
-    prevScrollHeightRef.current = container.scrollHeight;
+    const prevScrollHeight = container.scrollHeight;
 
-    setLimit((prev) => prev + 50);
-  };
+    const PAGE_SIZE = 50;
+    const newOffset = Math.max(0, offset - PAGE_SIZE);
 
-  // 🟢 POSISI SCROLL: HANYA MENYESUAIKAN SAAT 'LOAD MORE' DIKLIK
-  useLayoutEffect(() => {
-    const container = getScrollContainer();
-    if (!container || !rawMessages || rawMessages.length === 0) return;
+    const allMatching = await db.messages
+      .where("instance")
+      .equals(instance)
+      .filter((msg) => msg.jid === realJid)
+      .toArray();
 
-    // A. Saat pertama kali load, cukup tandai initial load selesai tanpa paksa scroll ke bawah
-    if (isInitialLoadRef.current) {
-      isInitialLoadRef.current = false;
-      return;
+    allMatching.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+    const olderChunk = allMatching.slice(newOffset, offset);
+    const formattedOlder = olderChunk.map(transformMessage);
+
+    // APPEND PESAN LAMA KE BAGIAN ATAS ARRAY (PREPENDING STATE)
+    setMessages((prev) => [...formattedOlder, ...prev]);
+    setOffset(newOffset);
+
+    if (newOffset === 0) {
+      setHasMore(false);
     }
 
-    // B. Saat mengeklik Load More, pertahankan titik pandang user
-    if (prevScrollHeightRef.current > 0) {
-      const newScrollHeight = container.scrollHeight;
-      const heightDifference = newScrollHeight - prevScrollHeightRef.current;
-
-      container.scrollTop = heightDifference;
-
-      prevScrollHeightRef.current = 0;
+    // MENJAGA POSISI SCROLL DENGAN PRESISI TANPA LONCATAN
+    requestAnimationFrame(() => {
+      if (container) {
+        const newScrollHeight = container.scrollHeight;
+        container.scrollTop = newScrollHeight - prevScrollHeight;
+      }
       setIsFetchingMore(false);
-    }
-  }, [rawMessages]);
-
-  const isDexieLoading = rawMessages === undefined;
-
-  const messages = useMemo(() => {
-    if (!rawMessages) return [];
-    return rawMessages.map((msg: any) => {
-      let rawType = (msg.msgType || msg.mediaType || "text").toLowerCase();
-
-      let normalizedType = "text";
-      if (rawType.includes("image")) normalizedType = "image";
-      else if (rawType.includes("video")) normalizedType = "video";
-      else if (rawType.includes("audio") || rawType.includes("voice") || rawType.includes("ptt")) normalizedType = "audio";
-      else if (rawType.includes("sticker")) normalizedType = "sticker";
-
-      return {
-        _id: msg.id,
-        id: msg.id,
-        instance: msg.instance,
-        jid: msg.jid,
-        message: msg.message || msg.text || "",
-        date: msg.timestamp,
-        timestamp: msg.timestamp,
-        isMyMsg: msg.isMyMsg,
-        msgType: normalizedType,
-        file: formatMediaUrl(msg.file || msg.mediaUrl, false, normalizedType),
-        thumbUrl: formatMediaUrl(msg.thumbUrl || msg.file || msg.mediaUrl, true, normalizedType),
-        sender: msg.sender || { name: msg.jid?.split("@")[0] || "Unknown" },
-      };
     });
-  }, [rawMessages, mediaBaseUrl]);
+  };
 
   const { showAttachFiles } = useSelector((state: RootState) => state.utils);
   const { startCall } = useSelector((state: RootState) => state.auth);
-
-  const isInitialLoading = isDexieLoading;
-
-  useEffect(() => {
-    setLimit(50);
-    isInitialLoadRef.current = true;
-    prevScrollHeightRef.current = 0;
-  }, [realJid, instance]);
 
   useEffect(() => {
     const container = getScrollContainer();
@@ -472,7 +484,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
 export default React.memo(ChatPage);
 
-// KOMPONEN VIDEO MESSAGE (Di bagian bawah ChatPage.tsx)
+// KOMPONEN VIDEO MESSAGE
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -524,25 +536,19 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
         }`}
       >
         {!isPlaying ? (
-          /* CONTAINER THUMBNAIL VIDEO (FIXED CENTER LAYOUT) */
           <div
             onClick={handlePlayClick}
             className="relative w-full h-[320px] sm:h-[360px] bg-[#111b21] rounded-md overflow-hidden cursor-pointer group border border-[#222d34]/40"
           >
             {thumbUrl && !imgError ? (
               <>
-                {/* 1. BACKGROUND BLUR (PENUH DI BELAKANG) */}
                 <img
                   src={thumbUrl}
                   alt=""
                   aria-hidden="true"
                   className="absolute inset-0 w-full h-full object-cover blur-xl scale-125 opacity-40 z-0"
                 />
-
-                {/* OVERLAY LAPISAN GELAP */}
                 <div className="absolute inset-0 bg-black/20 z-0" />
-
-                {/* 2. GAMBAR UTAMA (PASTI PRESISI DI TENGAH LAYAR) */}
                 <img
                   src={thumbUrl}
                   alt="Video Thumbnail"
@@ -556,17 +562,14 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
               </div>
             )}
 
-            {/* 3. TOMBOL PLAY (KUNCI DI CENTER MATRIX Z-30) */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-30 border border-white/30 backdrop-blur-md shadow-lg">
               <div className="w-0 h-0 border-t-[7px] border-t-transparent border-l-[13px] border-l-white border-b-[7px] border-b-transparent ml-1" />
             </div>
 
-            {/* BADGE "VIDEO" */}
             <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-[10px] px-2 py-0.5 rounded text-white/90 font-medium z-30 flex items-center gap-1 border border-white/10">
               <span>▶</span> Video
             </div>
 
-            {/* TIMESTAMP (JIKA TANPA CAPTION) */}
             {!hasCustomCaption && (
               <div className="absolute bottom-2 right-2 bg-black/60 backdrop-blur-md px-2 py-0.5 rounded text-[10px] text-white/90 z-30 border border-white/10">
                 {formattedTime}
@@ -574,7 +577,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
             )}
           </div>
         ) : (
-          /* PLAYER VIDEO */
           <div className="relative w-full h-[320px] sm:h-[360px] bg-black rounded-md overflow-hidden">
             <video
               ref={videoRef}
@@ -589,7 +591,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
           </div>
         )}
 
-        {/* CAPTION PESAN VIDEO */}
         {hasCustomCaption ? (
           <div className="flex justify-between items-end gap-2 pt-1.5 px-1">
             <p className="text-sm text-white/90 break-words leading-tight">
