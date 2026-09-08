@@ -52,7 +52,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   // Simpan ke Dexie
   const saveToDexie = async (msg: any) => {
     try {
-      // Unpack payload secara fleksibel
       const payload = msg?.data || msg;
 
       const msgInstance = payload.instance || instance || 'wa-ninih';
@@ -87,7 +86,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
         });
 
-        // 2. Update daftar chat room utama (dengan jid sebagai Primary Key)
+        // 2. Update daftar chat room utama
         await db.chats.put({
           instance: msgInstance,
           jid: jid,
@@ -106,33 +105,17 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     }
   };
 
-  const handleIncomingMessage = async (newMessage: any) => {
-    console.log('📥 handleIncomingMessage:', newMessage);
-
-    const payload = newMessage?.data || newMessage;
-
-    const incomingJid =
-      payload?.jid ||
-      payload?.key?.remoteJid;
-
-    if (!incomingJid) {
-      console.warn(
-        '⚠️ Pesan WebSocket tidak punya JID:',
-        newMessage
-      );
-      return;
-    }
-
-    await saveToDexie(newMessage);
-  };
-
+  // FUNGSI MENGURAS ANTRIAN (Flush Queue)
   const processBuffer = async () => {
     if (socketBufferRef.current.length > 0) {
+      console.log(`🚀 Menguras ${socketBufferRef.current.length} pesan tertunda dari antrian...`);
       const queue = [...socketBufferRef.current];
-      socketBufferRef.current = [];
+      socketBufferRef.current = []; // KOSONGKAN ANTRIAN
+
       for (const msg of queue) {
         await saveToDexie(msg);
       }
+      console.log('✨ Semua antrian berhasil dikuras!');
     }
   };
 
@@ -143,8 +126,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       'ws://192.168.100.245:8000/connection/websocket';
 
     console.log('======================================');
-    console.log('🔌 CENTRIFUGO CONNECT');
-    console.log('🔌 URL:', wsUrl);
+    console.log('🔌 CENTRIFUGO CONNECT:', wsUrl);
     console.log('======================================');
 
     const client = new Centrifuge(wsUrl);
@@ -159,28 +141,22 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       setIsConnected(true);
       isConnectedRef.current = true;
 
+      // Kuras antrian saat koneksi berhasil terhubung kembali
       processBuffer();
     });
 
     client.on('disconnected', (ctx) => {
-      console.warn(
-        '⚠️ Centrifugo disconnected:',
-        ctx
-      );
+      console.warn('⚠️ Centrifugo disconnected:', ctx);
 
       setIsConnected(false);
       isConnectedRef.current = false;
     });
 
     client.on('error', (err) => {
-      console.error(
-        '❌❌❌ Centrifugo connection error:',
-        err
-      );
+      console.error('❌❌❌ Centrifugo connection error:', err);
     });
 
     client.connect();
-
     setCentrifuge(client);
 
     return () => {
@@ -191,21 +167,11 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
   // Effect 2: Dynamic Subscription berdasarkan instance
   useEffect(() => {
-    if (!centrifuge) {
-      console.log('⏳ Centrifuge belum tersedia');
-      return;
-    }
+    if (!centrifuge) return;
 
     const channelName = `whatsapp:messages:${instance}`;
 
-    console.log('======================================');
-    console.log('📡 MEMBUAT SUBSCRIPTION');
-    console.log('📡 Channel:', channelName);
-    console.log('📡 Instance:', instance);
-    console.log('======================================');
-
     if (subRef.current) {
-      console.log('🧹 Unsubscribe subscription sebelumnya');
       subRef.current.unsubscribe();
       subRef.current = null;
     }
@@ -215,89 +181,28 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     try {
       sub = centrifuge.newSubscription(channelName);
     } catch (error) {
-      console.error(
-        '❌ Gagal membuat subscription:',
-        error
-      );
+      console.error('❌ Gagal membuat subscription:', error);
       return;
     }
 
-    sub.on('subscribing', (ctx) => {
-      console.log(
-        `🔄 SUBSCRIBING [${channelName}]`,
-        ctx
-      );
-    });
-
-    sub.on('subscribed', (ctx) => {
-      console.log(
-        `🎉🎉🎉 SUBSCRIBED [${channelName}]`,
-        ctx
-      );
-    });
-
-    sub.on('unsubscribed', (ctx) => {
-      console.warn(
-        `⚠️ UNSUBSCRIBED [${channelName}]`,
-        ctx
-      );
-    });
-
-    sub.on('error', (err) => {
-      console.error(
-        `❌❌❌ SUBSCRIPTION ERROR [${channelName}]`,
-        err
-      );
-    });
-
     sub.on('publication', async (ctx) => {
       console.log("📩 PESAN BARU DITERIMA DARI WEBSOCKET:", ctx.data);
-      const data = ctx.data?.data || ctx.data; // Ambil payload JSON
 
-      if (data && data.jid) {
-        // 1. Simpan/Update Isi Pesan Detail
-        await db.messages.put({
-          id: data.id,
-          instance: data.instance || instance,
-          jid: data.jid,
-          message: data.text || data.message || '',
-          timestamp: data.timestamp || new Date().toISOString(),
-          isMyMsg: data.fromMe ?? false,
-          msgType: data.mediaType || 'text',
-          file: data.mediaUrl || null,
-          thumbUrl: data.thumbUrl || null,
-          sender: { name: data.displayName || data.pushName || 'Unknown' }
-        });
-
-        // 2. Simpan/Update Daftar Chat Room (Sisi Kiri/Home)
-        await db.chats.put({
-          instance: data.instance || instance,
-          jid: data.jid,
-          text: data.text || data.message || '',
-          timestamp: data.timestamp || new Date().toISOString(),
-          fromMe: data.fromMe ?? false,
-          pushName: data.pushName || '',
-          displayName: data.displayName || data.contactName || data.pushName || data.jid.split('@')[0],
-          avatarUrl: data.avatarUrl || null
-        });
+      // Jika socket dalam kondisi terhubung, langsung simpan
+      if (isConnectedRef.current) {
+        await saveToDexie(ctx.data);
+      } else {
+        // Jika sedang disconnect/reconnecting, MASUKKAN KE ANTRIAN (BUFFER)
+        console.warn('⚠️ Socket offline, menyimpan pesan ke antrian buffer...');
+        socketBufferRef.current.push(ctx.data);
       }
     });
 
     subRef.current = sub;
-
-    console.log(
-      `🚀 Menjalankan subscribe(): ${channelName}`
-    );
-
     sub.subscribe();
 
     return () => {
-      console.log(
-        `🧹 Cleanup subscription: ${channelName}`
-      );
-
       sub.unsubscribe();
-
       if (subRef.current === sub) {
         subRef.current = null;
       }
