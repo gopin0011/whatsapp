@@ -64,8 +64,10 @@ const Users: React.FC<UsersProps> = ({
       </div>
 
       {/* List Chat */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2">
-        {isFetching ? (
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-2 space-y-2 relative">
+
+        {/* 🟢 1. INDIKATOR BACKGROUND SYNC (Berdiri Sendiri) */}
+        {isFetching && (
           // <div>
           //   {skeliton.map((_, index) => (
           //     <UserSkeliton key={index} />
@@ -75,7 +77,10 @@ const Users: React.FC<UsersProps> = ({
             <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
             <span>Menyinkronkan pesan...</span>
           </div>
-        ) : latestChats.length > 0 ? (
+        )}
+
+        {/* 🟢 2. DAFTAR CHAT (TETAP TAMPIL TANPA TERHALANG isFetching) */}
+        {latestChats.length > 0 ? (
           latestChats.map((chat) => {
             const isGroup = chat.jid.endsWith('@g.us');
 
@@ -156,9 +161,12 @@ const Users: React.FC<UsersProps> = ({
             );
           })
         ) : (
-          <div className="text-center text-gray-500 text-sm mt-10">
-            Tidak ada percakapan ditemukan.
-          </div>
+          /* Tampilkan pesan ini hanya jika sinkronisasi selesai & data memang 0 */
+          !isFetching && (
+            <div className="text-center text-gray-500 text-sm mt-10">
+              Tidak ada percakapan ditemukan.
+            </div>
+          )
         )}
       </div>
     </header>

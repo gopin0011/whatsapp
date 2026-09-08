@@ -112,30 +112,31 @@ const ChatPage: React.FC<ChatPageProps> = ({
   // =========================================================
   // 1. QUERY MULTI-INSTANCE (FILTER INSTANCE + JID)
   // =========================================================
-  // const rawMessages = useLiveQuery(
-  //   () =>
-  //     db.messages
-  //       .where("instance")
-  //       .equals(instance)
-  //       .filter((msg) => msg.jid === realJid)
-  //       .sortBy("timestamp"),
-  //   [instance, realJid]
-  // );
-  // 2. Query Dexie: Urutkan dari TERBARU (reverse), ambil sesuai limit, lalu balikkan lagi urutannya
   const rawMessages = useLiveQuery(
-    async () => {
-      const data = await db.messages
+    () =>
+      db.messages
         .where("instance")
         .equals(instance)
         .filter((msg) => msg.jid === realJid)
-        .reverse() // Urutkan dari pesan paling baru
-        .limit(limit) // Batasi sesuai variabel limit (misal: 40)
-        .toArray();
-
-      return data.reverse(); // Balikkan kembali agar urutan dari lama -> baru (kronologis)
-    },
-    [instance, realJid, limit]
+        .limit(limit)
+        .sortBy("timestamp"),
+    [instance, realJid]
   );
+  // 2. Query Dexie: Urutkan dari TERBARU (reverse), ambil sesuai limit, lalu balikkan lagi urutannya
+  // const rawMessages = useLiveQuery(
+  //   async () => {
+  //     const data = await db.messages
+  //       .where("instance")
+  //       .equals(instance)
+  //       .filter((msg) => msg.jid === realJid)
+  //       .reverse() // Urutkan dari pesan paling baru
+  //       .limit(limit) // Batasi sesuai variabel limit (misal: 40)
+  //       .toArray();
+
+  //     return data.reverse(); // Balikkan kembali agar urutan dari lama -> baru (kronologis)
+  //   },
+  //   [instance, realJid, limit]
+  // );
 
   // 3. Handler Scroll ke Atas untuk Memuat Pesan Lebih Lama
   const handleScrollUpper = () => {
