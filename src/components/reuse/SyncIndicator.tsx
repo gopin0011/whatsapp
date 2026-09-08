@@ -11,9 +11,10 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({
 }) => {
   // Pengaturan posisi
   const positionClasses = {
-    'bottom-center': 'absolute bottom-6 left-1/2 -translate-x-1/2',
-    'bottom-right': 'absolute bottom-6 right-6',
-    'top-right': 'fixed top-3 right-3',
+    // bottom-20 agar mengapung di atas input chat/navigation bar Android
+    'bottom-right': 'fixed bottom-20 right-5 pb-[env(safe-area-inset-bottom)]',
+    'bottom-center': 'fixed bottom-20 left-1/2 -translate-x-1/2 pb-[env(safe-area-inset-bottom)]',
+    'top-right': 'fixed top-4 right-4 pt-[env(safe-area-inset-top)]',
   };
 
   return (
@@ -23,7 +24,7 @@ const SyncIndicator: React.FC<SyncIndicatorProps> = ({
     // </div>
     <div
       title="Menyinkronkan pesan..."
-      className={`z-50 w-9 h-9 rounded-full bg-[#202c33]/90 backdrop-blur-md border border-[#00a884]/40 flex items-center justify-center shadow-lg transition-all ${positionClasses[position]}`}
+      className={`z-[9999] w-9 h-9 rounded-full bg-[#202c33]/90 backdrop-blur-md border border-[#00a884]/40 flex items-center justify-center shadow-2xl transition-all pointer-events-none ${positionClasses[position]}`}
     >
       <div className="w-4 h-4 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
     </div>
