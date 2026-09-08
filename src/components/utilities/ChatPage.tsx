@@ -9,7 +9,7 @@ import { useSelector, useDispatch } from "react-redux";
 import { useParams } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/chatDb";
-import { useSocket } from "../../context/SocketContext"; // 🟢 1. IMPORT SOKET
+import { useSocket } from "../../context/SocketContext";
 
 import Message from "../cards/Message";
 import { RootState } from "../../Redux/store";
@@ -62,7 +62,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const dispatch = useDispatch();
   const { jid } = useParams<{ jid: string }>();
 
-  // 🟢 2. AMBIL STATUS SINKRONISASI DARI SOCKET CONTEXT
   const { isSyncing } = useSocket();
 
   const realJid = useMemo(() => {
@@ -81,6 +80,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
 
+  // 🟢 HELPER SINKRONISASI MEDIA & THUMBNAIL VIDEO (.jpg)
   const formatMediaUrl = (
     urlPath: string | null | undefined, 
     isThumb: boolean = false, 
@@ -91,10 +91,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
       return urlPath;
     }
     
-    const fileName = urlPath.split("/").pop() || "";
+    let fileName = urlPath.split("/").pop() || "";
     const isAudio = ['audio', 'voice', 'ptt'].includes(msgType);
 
     if (isThumb && !isAudio) {
+      // 🟢 Konversi ekstensi video menjadi .jpg untuk thumbnail
+      if (msgType === 'video') {
+        fileName = fileName.replace(/\.[^/.]+$/, "") + ".jpg";
+      }
       return `${mediaBaseUrl.replace(/\/$/, "")}/media/thumb/${fileName}`;
     }
     
@@ -121,7 +125,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return rawMessages.map((msg: any) => {
       let rawType = (msg.msgType || msg.mediaType || "text").toLowerCase();
 
-      // Normalisasi dari format WA API ke format UI React
       let normalizedType = "text";
       if (rawType.includes("image")) normalizedType = "image";
       else if (rawType.includes("video")) normalizedType = "video";
@@ -148,10 +151,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { showAttachFiles } = useSelector((state: RootState) => state.utils);
   const { startCall } = useSelector((state: RootState) => state.auth);
 
-  // 🟢 3. HAPUS BLOK EFFECT FETCH API MANUAL
-  // SocketContext bertanggung jawab penuh mengunduh & menyinkronkan data ke Dexie.
-  
-  // Loading aktif jika data dari Dexie belum terbaca ATAU Socket Context sedang Sync HTTP
   const isInitialLoading = isDexieLoading || isSyncing;
 
   const getScrollContainer = () => {
@@ -420,6 +419,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
 export default React.memo(ChatPage);
 
+// 🟢 KOMPONEN VIDEO MESSAGE DENGAN POSTER THUMBNAIL (.jpg)
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -449,12 +449,19 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
         {!isPlaying ? (
           <div
             onClick={handlePlayClick}
-            className="relative w-full aspect-video bg-[#111b21] rounded-md flex items-center justify-center cursor-pointer group overflow-hidden border border-[#222d34]"
+            className="relative w-full aspect-video bg-[#111b21] rounded-md flex items-center justify-center cursor-pointer group overflow-hidden border border-[#222d34] bg-cover bg-center"
+            style={{
+              backgroundImage: message.thumbUrl ? `url("${message.thumbUrl}")` : "none",
+            }}
           >
+            {/* Overlay Gelap Agar Tombol Play Terlihat Jelas */}
+            <div className="absolute inset-0 bg-black/40 group-hover:bg-black/30 transition-all" />
+
             <div className="w-14 h-14 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-10 border border-white/20">
               <div className="w-0 h-0 border-t-[9px] border-t-transparent border-l-[16px] border-l-white border-b-[9px] border-b-transparent ml-1" />
             </div>
-            <span className="absolute bottom-2 right-2 bg-black/70 text-[11px] px-2 py-0.5 rounded text-white/80 font-medium">
+
+            <span className="absolute bottom-2 right-2 bg-black/70 text-[11px] px-2 py-0.5 rounded text-white/80 font-medium z-10">
               Video
             </span>
           </div>
