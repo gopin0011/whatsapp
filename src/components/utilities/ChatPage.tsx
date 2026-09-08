@@ -420,15 +420,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
 export default React.memo(ChatPage);
 
 // 🟢 KOMPONEN VIDEO MESSAGE DENGAN POSTER THUMBNAIL (.jpg)
+// 🟢 KOMPONEN VIDEO MESSAGE DENGAN THUMBNAIL & METADATA
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
+  const [imgError, setImgError] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
 
+  // Pastikan URL file & thumbnail valid
   const videoUrl = message.file?.startsWith("http")
     ? message.file
     : `${mediaBaseUrl.replace(/\/$/, "")}${message.file}`;
+
+  const thumbUrl = message.thumbUrl?.startsWith("http")
+    ? message.thumbUrl
+    : `${mediaBaseUrl.replace(/\/$/, "")}${message.thumbUrl}`;
 
   const handlePlayClick = () => {
     setIsPlaying(true);
@@ -439,50 +446,85 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
     }, 50);
   };
 
+  // Format jam untuk pesan
+  const formattedTime = new Date(message.timestamp || message.date).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
   return (
     <div className={`flex ${message.isMyMsg ? "justify-end" : "justify-start"} my-1`}>
       <div
-        className={`relative w-[320px] sm:w-[380px] p-1.5 rounded-lg ${
+        className={`relative w-[280px] sm:w-[340px] p-1.5 rounded-lg shadow-sm ${
           message.isMyMsg ? "bg-[#005c4b]" : "bg-[#202c33]"
         }`}
       >
         {!isPlaying ? (
           <div
             onClick={handlePlayClick}
-            className="relative w-full aspect-video bg-[#111b21] rounded-md flex items-center justify-center cursor-pointer group overflow-hidden border border-[#222d34] bg-cover bg-center"
-            style={{
-              backgroundImage: message.thumbUrl ? `url("${message.thumbUrl}")` : "none",
-            }}
+            className="relative w-full aspect-video bg-[#111b21] rounded-md overflow-hidden cursor-pointer group border border-[#222d34]/50 flex items-center justify-center"
           >
-            {/* Overlay Gelap Agar Tombol Play Terlihat Jelas */}
-            <div className="absolute inset-0 bg-black/40 group-hover:bg-black/30 transition-all" />
+            {/* Tag <img> lebih andal daripada Background Image */}
+            {thumbUrl && !imgError ? (
+              <img
+                src={thumbUrl}
+                alt="Video Thumbnail"
+                onError={() => setImgError(true)}
+                className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+              />
+            ) : (
+              <div className="absolute inset-0 bg-[#1f2c34] flex items-center justify-center text-gray-500 text-xs">
+                No Thumbnail
+              </div>
+            )}
 
-            <div className="w-14 h-14 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-10 border border-white/20">
-              <div className="w-0 h-0 border-t-[9px] border-t-transparent border-l-[16px] border-l-white border-b-[9px] border-b-transparent ml-1" />
+            {/* Overlay gelap transparan */}
+            <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-all" />
+
+            {/* Tombol Play Icon */}
+            <div className="w-12 h-12 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-10 border border-white/20 backdrop-blur-sm">
+              <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-white border-b-[8px] border-b-transparent ml-1" />
             </div>
 
-            <span className="absolute bottom-2 right-2 bg-black/70 text-[11px] px-2 py-0.5 rounded text-white/80 font-medium z-10">
-              Video
-            </span>
+            {/* Keterangan Video di Kiri Bawah */}
+            <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-[10px] px-1.5 py-0.5 rounded text-white/90 font-medium z-10 flex items-center gap-1">
+              <span>▶</span> Video
+            </div>
+
+            {/* Jam Pengiriman di Kanan Bawah Thumbnail (jika tidak ada caption) */}
+            {!message.message && (
+              <div className="absolute bottom-1.5 right-2 bg-black/50 px-1.5 py-0.5 rounded text-[10px] text-white/80 z-10">
+                {formattedTime}
+              </div>
+            )}
           </div>
         ) : (
-          <video
-            ref={videoRef}
-            src={videoUrl}
-            controls
-            autoPlay
-            preload="auto"
-            className="w-full h-auto max-h-[400px] rounded-md object-contain bg-black"
-          >
-            Browser tidak mendukung video.
-          </video>
+          <div className="relative w-full aspect-video bg-black rounded-md overflow-hidden">
+            <video
+              ref={videoRef}
+              src={videoUrl}
+              controls
+              autoPlay
+              preload="metadata"
+              className="w-full h-full object-contain"
+            >
+              Browser tidak mendukung video.
+            </video>
+          </div>
         )}
 
-        {message.message && (
-          <p className="text-sm text-white px-1 pt-1.5 break-words">
-            {message.message}
-          </p>
-        )}
+        {/* Caption & Timestamp */}
+        {message.message ? (
+          <div className="flex justify-between items-end gap-2 pt-1.5 px-1">
+            <p className="text-sm text-white/90 break-words leading-tight">{message.message}</p>
+            <span className="text-[10px] text-white/60 whitespace-nowrap self-end">{formattedTime}</span>
+          </div>
+        ) : isPlaying ? (
+          <div className="flex justify-end pt-1 px-1">
+            <span className="text-[10px] text-white/60">{formattedTime}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
