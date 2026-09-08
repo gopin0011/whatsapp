@@ -1,68 +1,24 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db/chatDb';
 import Users from '../components/utilities/Users';
-import axios from 'axios';
-import { toast } from 'react-toastify';
+import { useSocket } from '../context/SocketContext';
 
 interface HomeProps {
   instance?: string;
 }
 
 const Home: React.FC<HomeProps> = ({ instance = 'wa-ninih' }) => {
-  const [isSyncing, setIsSyncing] = useState(false);
+  // Ambil state isSyncing langsung dari SocketContext
+  const { isSyncing } = useSocket();
 
-  // 1. Query reaktif spesifik BERDASARKAN INSTANCE yang aktif
+  // Query reaktif spesifik BERDASARKAN INSTANCE yang aktif
   const latestChats = useLiveQuery(
     () => db.chats.where('instance').equals(instance).sortBy('timestamp').then(res => res.reverse()),
     [instance]
   );
 
-  // 2. Sync Awal: Cek IndexedDB untuk instance ini
-  useEffect(() => {
-    const syncInitialHome = async () => {
-      try {
-        const count = await db.chats.where('instance').equals(instance).count();
-        if (count === 0) {
-          setIsSyncing(true);
-          const baseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8082';
-          
-          // Memanggil sync tanpa `since` untuk mengambil SELURUH riwayat
-          const response = await axios.get(`${baseUrl.replace(/\/$/, '')}/chats/sync`, {
-            params: { 
-              instance: instance
-            }
-          });
-
-          if (response.data?.success) {
-            const rawData = response.data.data || [];
-            
-            const formattedChats = rawData.map((item: any) => ({
-              instance: instance,
-              jid: item.jid,
-              text: item.text || item.message || '',
-              timestamp: item.timestamp || item.date || new Date().toISOString(),
-              fromMe: item.fromMe ?? item.isMyMsg ?? false,
-              pushName: item.pushName || item.sender?.name,
-              displayName: item.displayName || item.pushName || item.jid.split('@')[0],
-              avatarUrl: item.avatarUrl || null,
-            }));
-
-            // Simpan ke db.chats
-            await db.chats.bulkPut(formattedChats);
-          }
-        }
-      } catch (error) {
-        console.error('Gagal menyinkronkan daftar chat awal:', error);
-        toast.error('Gagal memuat pesan');
-      } finally {
-        setIsSyncing(false);
-      }
-    };
-
-    syncInitialHome();
-  }, [instance]);
-
+  // Loading aktif jika data dari IndexedDB masih undefined ATAU SocketContext sedang melakukan sync HTTP
   const isLoading = latestChats === undefined || isSyncing;
 
   return (

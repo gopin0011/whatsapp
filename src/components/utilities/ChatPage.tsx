@@ -7,9 +7,9 @@ import React, {
 
 import { useSelector, useDispatch } from "react-redux";
 import { useParams } from "react-router-dom";
-import axios from "axios";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "../../db/chatDb";
+import { useSocket } from "../../context/SocketContext"; // 🟢 1. IMPORT SOKET
 
 import Message from "../cards/Message";
 import { RootState } from "../../Redux/store";
@@ -62,6 +62,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const dispatch = useDispatch();
   const { jid } = useParams<{ jid: string }>();
 
+  // 🟢 2. AMBIL STATUS SINKRONISASI DARI SOCKET CONTEXT
+  const { isSyncing } = useSocket();
+
   const realJid = useMemo(() => {
     if (!jid) return "";
     let decoded = jid;
@@ -73,7 +76,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return decoded.trim();
   }, [jid]);
 
-  const [loadingApi, setLoadingApi] = useState(false);
   const chatContentRef = useRef<HTMLDivElement | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
 
@@ -135,7 +137,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
         date: msg.timestamp,
         timestamp: msg.timestamp,
         isMyMsg: msg.isMyMsg,
-        msgType: normalizedType, // Gunakan tipe yang sudah dinormalisasi
+        msgType: normalizedType,
         file: formatMediaUrl(msg.file || msg.mediaUrl, false, normalizedType),
         thumbUrl: formatMediaUrl(msg.thumbUrl || msg.file || msg.mediaUrl, true, normalizedType),
         sender: msg.sender || { name: msg.jid?.split("@")[0] || "Unknown" },
@@ -146,56 +148,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { showAttachFiles } = useSelector((state: RootState) => state.utils);
   const { startCall } = useSelector((state: RootState) => state.auth);
 
-  // =========================================================
-  // 2. FETCH HISTORY BERDASARKAN INSTANCE & JID
-  // =========================================================
-  useEffect(() => {
-    const fetchChatHistory = async () => {
-      if (!realJid || isDexieLoading) return;
-
-      // Cek apakah pesan untuk instance + jid ini sudah ada di Dexie
-      if (messages.length === 0) {
-        try {
-          setLoadingApi(true);
-          const baseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://localhost:8081";
-          const response = await axios.get(
-            `${baseUrl}/chat/${encodeURIComponent(realJid)}?instance=${instance}`
-          );
-
-          if (response.data?.success) {
-            const formattedMessages = response.data.data.map((chat: any) => ({
-              id: chat.id || chat._id || new Date().getTime().toString(),
-              instance: instance, // PERBAIKAN: Sertakan instance di tiap record
-              jid: chat.jid || realJid,
-              message: chat.text || chat.message || "",
-              timestamp: chat.timestamp || chat.date || new Date().toISOString(),
-              isMyMsg: chat.fromMe ?? chat.isMyMsg ?? false,
-              msgType: chat.mediaType || chat.msgType || "text",
-              file: chat.mediaUrl || chat.file,
-              thumbUrl: chat.thumbUrl || chat.mediaUrl || chat.file,
-              sender: {
-                name:
-                  chat.pushName ||
-                  chat.sender?.name ||
-                  realJid.split("@")[0] ||
-                  "Unknown",
-              },
-            }));
-
-            await db.messages.bulkPut(formattedMessages);
-          }
-        } catch (error) {
-          console.error("Gagal memuat riwayat pesan:", error);
-        } finally {
-          setLoadingApi(false);
-        }
-      }
-    };
-
-    fetchChatHistory();
-  }, [realJid, instance, isDexieLoading, messages.length]);
-
-  const isInitialLoading = isDexieLoading || (loadingApi && messages.length === 0);
+  // 🟢 3. HAPUS BLOK EFFECT FETCH API MANUAL
+  // SocketContext bertanggung jawab penuh mengunduh & menyinkronkan data ke Dexie.
+  
+  // Loading aktif jika data dari Dexie belum terbaca ATAU Socket Context sedang Sync HTTP
+  const isInitialLoading = isDexieLoading || isSyncing;
 
   const getScrollContainer = () => {
     return chatContentRef.current?.parentElement as HTMLDivElement | null;
@@ -467,9 +424,11 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
+
   const videoUrl = message.file?.startsWith("http")
     ? message.file
-    : `${import.meta.env.VITE_API_CLIENT_URL || "http://localhost:8081"}${message.file}`;
+    : `${mediaBaseUrl.replace(/\/$/, "")}${message.file}`;
 
   const handlePlayClick = () => {
     setIsPlaying(true);

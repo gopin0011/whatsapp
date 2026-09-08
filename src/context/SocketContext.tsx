@@ -6,6 +6,7 @@ import axios from 'axios';
 interface SocketContextType {
   centrifuge: Centrifuge | null;
   isConnected: boolean;
+  isSyncing: boolean;
   activeInstance: string;
 }
 
@@ -17,6 +18,7 @@ interface SocketProviderProps {
 const SocketContext = createContext<SocketContextType>({
   centrifuge: null,
   isConnected: false,
+  isSyncing: false,
   activeInstance: 'wa-ninih',
 });
 
@@ -26,12 +28,16 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 }) => {
   const [centrifuge, setCentrifuge] = useState<Centrifuge | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   const socketBufferRef = useRef<any[]>([]);
   const isConnectedRef = useRef<boolean>(false);
+  
+  // 🟢 1. TAMBAHKAN REF UNTUK MENANDAI STATUS SYNC
+  const isSyncingRef = useRef<boolean>(false);
+  
   const subRef = useRef<Subscription | null>(null);
 
-  // Helper format media URL
   const formatMediaUrl = (
     urlPath: string | null | undefined, 
     isThumb: boolean = false, 
@@ -50,7 +56,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     return `${mediaBaseUrl.replace(/\/$/, "")}/media/${fileName}`;
   };
 
-  // Helper formatting preview text untuk UI Home jika pesan berupa media
   const formatPreviewText = (text: string, mediaType: string) => {
     if (text && text.trim() !== '') return text;
 
@@ -68,7 +73,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     }
   };
 
-  // Simpan ke Dexie
   const saveToDexie = async (msg: any) => {
     try {
       const payload = msg?.data || msg;
@@ -77,12 +81,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       const msgId = payload.id || payload.key?.id || `${Date.now()}_${Math.random()}`;
       const jid = payload.jid || payload.key?.remoteJid;
       
-      if (!jid) {
-        console.warn('⚠️ Pesan WebSocket diabaikan karena JID kosong:', payload);
-        return;
-      }
+      if (!jid) return;
 
-      // Deteksi fromMe secara akurat
       const fromMe = payload.fromMe ?? payload.key?.fromMe ?? payload.isMyMsg ?? false;
       const rawText = payload.text || payload.message || payload.rawText || '';
       const timestamp = payload.timestamp || payload.date || new Date().toISOString();
@@ -91,12 +91,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       const rawMediaUrl = payload.mediaUrl || payload.file;
       const rawThumbUrl = payload.thumbUrl || rawMediaUrl;
       const msgType = payload.mediaType || payload.msgType || 'text';
-
-      // Format teks khusus agar di Home tidak kosong kalau kirim foto/suara
       const displayText = payload.displayText || formatPreviewText(rawText, msgType);
 
       await db.transaction('rw', db.messages, db.chats, async () => {
-        // 1. Simpan ke daftar riwayat pesan
         await db.messages.put({
           id: String(msgId),
           instance: msgInstance,
@@ -110,7 +107,6 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
         });
 
-        // 2. Cek pesan terakhir di Chat Home agar tidak tertimpa pesan lama jika WebSocket urutannya tertukar
         const existingChat = await db.chats.get([msgInstance, jid]);
 
         if (!existingChat || new Date(timestamp).getTime() >= new Date(existingChat.timestamp).getTime()) {
@@ -126,94 +122,89 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           });
         }
       });
-
-      console.log(`✅ [${msgInstance}] Pesan dari ${jid} berhasil disimpan ke IndexedDB!`);
     } catch (error) {
       console.error('❌ Gagal menyimpan ke Dexie:', error);
     }
   };
 
-  // FUNGSI MENGURAS ANTRIAN (Flush Queue)
+  // Kuras antrian buffer WebSocket
   const processBuffer = async () => {
     if (socketBufferRef.current.length > 0) {
       console.log(`🚀 Menguras ${socketBufferRef.current.length} pesan tertunda dari antrian...`);
       const queue = [...socketBufferRef.current];
-      socketBufferRef.current = []; // KOSONGKAN ANTRIAN
+      socketBufferRef.current = [];
 
       for (const msg of queue) {
         await saveToDexie(msg);
       }
-      console.log('✨ Semua antrian berhasil dikuras!');
     }
   };
 
-  // Kuras antrian dari backend server
+  // 🟢 2. SINKRONISASI DIPERBAIKI (Tandai Ref & Kuras Buffer di Akhir)
   const syncMissingMessagesFromBackend = async () => {
     try {
+      setIsSyncing(true);
+      isSyncingRef.current = true; // Set Ref ke true agar WebSocket menahan pesan
+
       const apiBaseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8082';
+      const totalMessages = await db.messages.where('instance').equals(instance).count();
 
-      // 1. Ambil pesan paling terakhir yang tersimpan di IndexedDB milik instance ini
-      const lastMessages = await db.messages
-        .where('instance')
-        .equals(instance)
-        .reverse()
-        .sortBy('timestamp');
+      let queryParams: any = { instance };
 
-      const lastTimestamp = lastMessages.length > 0 
-        ? lastMessages[0].timestamp 
-        : new Date(0).toISOString();
+      if (totalMessages > 0) {
+        const lastMessages = await db.messages
+          .where('instance')
+          .equals(instance)
+          .reverse()
+          .sortBy('timestamp');
 
-      console.log(`🔄 Sync missing messages sejak: ${lastTimestamp}`);
-
-      // 2. Minta ke backend
-      const res = await axios.get(`${apiBaseUrl.replace(/\/$/, '')}/chats/sync`, {
-        params: { 
-          instance: instance, 
-          since: lastTimestamp 
+        if (lastMessages.length > 0) {
+          queryParams.since = lastMessages[0].timestamp;
+          console.log(`🔄 Delta sync sejak: ${queryParams.since}`);
         }
+      } else {
+        console.log(`📦 DB Kosong! Mengunduh seluruh riwayat awal untuk instance: ${instance}`);
+      }
+
+      const res = await axios.get(`${apiBaseUrl.replace(/\/$/, '')}/chats/sync`, {
+        params: queryParams
       });
 
       const missingMessages = res.data?.data || [];
 
-      // 3. Simpan pesan yang ketinggalan ke Dexie
-      if (missingMessages.length > 0) {
-        console.log(`📦 Menarik ${missingMessages.length} pesan tertunda dari backend...`);
+      if (Array.isArray(missingMessages) && missingMessages.length > 0) {
+        console.log(`✨ Memproses ${missingMessages.length} pesan dari backend...`);
         for (const msg of missingMessages) {
           await saveToDexie(msg);
         }
       }
     } catch (error) {
       console.error('❌ Gagal sync pesan dari backend:', error);
+    } finally {
+      setIsSyncing(false);
+      isSyncingRef.current = false; // Sync selesai!
+      
+      // 🟢 Kuras pesan WebSocket yang terakumulasi/menunggu selama sync berlangsung
+      await processBuffer();
     }
   };
 
-  // Effect 1: Inisialisasi Koneksi Websocket Utama
   useEffect(() => {
-    const wsUrl =
-      import.meta.env.VITE_API_SOCKET_URL ||
-      'ws://192.168.100.245:8000/connection/websocket';
-
+    const wsUrl = import.meta.env.VITE_API_SOCKET_URL || 'ws://192.168.100.245:8000/connection/websocket';
     const client = new Centrifuge(wsUrl);
 
-    client.on('connected', (ctx) => {
-      console.log('✅✅✅ CENTRIFUGO CONNECTED:', ctx);
-
+    client.on('connected', async (ctx) => {
+      console.log('✅ CENTRIFUGO CONNECTED:', ctx);
       setIsConnected(true);
       isConnectedRef.current = true;
 
-      processBuffer();
-      syncMissingMessagesFromBackend();
+      // 🟢 Langsung jalankan sync backend (Buffer otomatis dikuras di dalam fungsi ini)
+      await syncMissingMessagesFromBackend();
     });
 
-    client.on('disconnected', (ctx) => {
-      console.warn('⚠️ Centrifugo disconnected:', ctx);
-
+    client.on('disconnected', () => {
       setIsConnected(false);
       isConnectedRef.current = false;
-    });
-
-    client.on('error', (err) => {
-      console.error('❌ Centrifugo connection error:', err);
     });
 
     client.connect();
@@ -222,9 +213,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     return () => {
       client.disconnect();
     };
-  }, []);
+  }, [instance]);
 
-  // Effect 2: Dynamic Subscription berdasarkan instance
   useEffect(() => {
     if (!centrifuge) return;
 
@@ -235,25 +225,20 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       subRef.current = null;
     }
 
-    let sub: Subscription;
+    const sub = centrifuge.newSubscription(channelName, {
+      positioned: true,
+      recoverable: true
+    });
 
-    try {
-      sub = centrifuge.newSubscription(channelName, {
-        positioned: true,
-        recoverable: true
-      });
-    } catch (error) {
-      console.error('❌ Gagal membuat subscription:', error);
-      return;
-    }
-
+    // 🟢 3. LOGIKA PENANGANAN PUBLICATION
     sub.on('publication', async (ctx) => {
       console.log("📩 PESAN BARU DITERIMA DARI WEBSOCKET:", ctx.data);
 
-      if (isConnectedRef.current) {
+      // Cek apakah WebSocket terhubung DAN TIDAK SEDANG SINKRONISASI HTTP
+      if (isConnectedRef.current && !isSyncingRef.current) {
         await saveToDexie(ctx.data);
       } else {
-        console.warn('⚠️ Socket offline, menyimpan pesan ke antrian buffer...');
+        console.warn('⚠️ Socket offline atau sedang proses Sync HTTP, menyimpan pesan ke antrian buffer...');
         socketBufferRef.current.push(ctx.data);
       }
     });
@@ -270,7 +255,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   }, [centrifuge, instance]);
 
   return (
-    <SocketContext.Provider value={{ centrifuge, isConnected, activeInstance: instance }}>
+    <SocketContext.Provider value={{ centrifuge, isConnected, isSyncing, activeInstance: instance }}>
       {children}
     </SocketContext.Provider>
   );
