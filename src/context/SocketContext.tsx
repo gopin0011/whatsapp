@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import { Centrifuge, Subscription } from 'centrifuge';
 import { db } from '../db/chatDb'; 
+import axios from 'axios';
 
 interface SocketContextType {
   centrifuge: Centrifuge | null;
@@ -119,6 +120,30 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     }
   };
 
+  // Kuras antrian dari backend server
+  const syncMissingMessagesFromBackend = async () => {
+    try {
+      const apiBaseUrl = import.meta.env.VITE_API_CLIENT_URL || 'http://192.168.100.245:8082';
+      console.log(`🔄 Mengontak backend untuk flush queue instance [${instance}]...`);
+
+      const res = await axios.post(`${apiBaseUrl.replace(/\/$/, '')}/chats/flush-queue/${instance}`);
+      
+      const pendingData = res.data?.data;
+
+      if (Array.isArray(pendingData) && pendingData.length > 0) {
+        console.log(`📦 Diterima ${pendingData.length} pesan tertunda dari backend, menyimpan ke Dexie...`);
+        for (const msg of pendingData) {
+          await saveToDexie(msg);
+        }
+        console.log('✨ Berhasil menyimpan seluruh antrian backend ke Dexie!');
+      } else {
+        console.log('👍 Tidak ada pesan tertunda di backend.');
+      }
+    } catch (error) {
+      console.error('❌ Gagal sync missing messages dari backend:', error);
+    }
+  };
+
   // Effect 1: Inisialisasi Koneksi Websocket Utama
   useEffect(() => {
     const wsUrl =
@@ -141,8 +166,11 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       setIsConnected(true);
       isConnectedRef.current = true;
 
-      // Kuras antrian saat koneksi berhasil terhubung kembali
+      // 1. Kuras buffer lokal frontend
       processBuffer();
+
+      // 2. Kuras antrian pesan dari backend server
+      syncMissingMessagesFromBackend();
     });
 
     client.on('disconnected', (ctx) => {
@@ -179,7 +207,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     let sub: Subscription;
 
     try {
-      sub = centrifuge.newSubscription(channelName);
+      sub = centrifuge.newSubscription(channelName, {
+        positioned: true,
+        recoverable: true
+      });
     } catch (error) {
       console.error('❌ Gagal membuat subscription:', error);
       return;
@@ -194,6 +225,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       } else {
         // Jika sedang disconnect/reconnecting, MASUKKAN KE ANTRIAN (BUFFER)
         console.warn('⚠️ Socket offline, menyimpan pesan ke antrian buffer...');
+
         socketBufferRef.current.push(ctx.data);
       }
     });
