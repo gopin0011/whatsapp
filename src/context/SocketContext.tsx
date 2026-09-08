@@ -60,7 +60,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     if (text && text.trim() !== '') return text;
 
     switch (mediaType) {
-      case 'image': return '📷 Foto';
+      case 'image': //  return '📷 Foto';
       case 'video': return '🎥 Video';
       case 'audio':
       case 'voice':
