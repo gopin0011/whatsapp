@@ -110,50 +110,36 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   // =========================================================
-  // 1. QUERY MULTI-INSTANCE (FILTER INSTANCE + JID)
+  // 🟢 1. QUERY DEXIE TERBARU (LOAD 40 TERBARU + PAGINATION)
   // =========================================================
   const rawMessages = useLiveQuery(
-    () =>
-      db.messages
+    async () => {
+      if (!realJid) return [];
+      const data = await db.messages
         .where("instance")
         .equals(instance)
         .filter((msg) => msg.jid === realJid)
-        .limit(limit)
-        .sortBy("timestamp"),
-    [instance, realJid]
+        .reverse() // Urutkan dari pesan paling baru
+        .limit(limit) // Ambil sejumlah limit (40)
+        .toArray();
+
+      return data.reverse(); // Balikkan lagi agar urutannya kronologis (lama -> baru)
+    },
+    [instance, realJid, limit]
   );
-  // 2. Query Dexie: Urutkan dari TERBARU (reverse), ambil sesuai limit, lalu balikkan lagi urutannya
-  // const rawMessages = useLiveQuery(
-  //   async () => {
-  //     const data = await db.messages
-  //       .where("instance")
-  //       .equals(instance)
-  //       .filter((msg) => msg.jid === realJid)
-  //       .reverse() // Urutkan dari pesan paling baru
-  //       .limit(limit) // Batasi sesuai variabel limit (misal: 40)
-  //       .toArray();
 
-  //     return data.reverse(); // Balikkan kembali agar urutan dari lama -> baru (kronologis)
-  //   },
-  //   [instance, realJid, limit]
-  // );
-
-  // 3. Handler Scroll ke Atas untuk Memuat Pesan Lebih Lama
+  // 🟢 2. HANDLER SCROLL KE ATAS UNTUK LOAD MORE
   const handleScrollUpper = () => {
     const container = getScrollContainer();
     if (!container) return;
 
-    // Jika scroll menyentuh paling atas (scrollTop === 0)
     if (container.scrollTop === 0 && !isFetchingMore && rawMessages && rawMessages.length >= limit) {
       setIsFetchingMore(true);
       
-      // Simpan tinggi scroll sebelum data bertambah agar posisi scroll tidak lompat
       const previousScrollHeight = container.scrollHeight;
 
-      // Tambah limit sebanyak 40 pesan lagi
       setLimit((prev) => prev + 40);
 
-      // Kembalikan posisi scroll ke titik semula setelah data dirender
       requestAnimationFrame(() => {
         if (container) {
           container.scrollTop = container.scrollHeight - previousScrollHeight;
@@ -196,7 +182,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { showAttachFiles } = useSelector((state: RootState) => state.utils);
   const { startCall } = useSelector((state: RootState) => state.auth);
 
-  const isInitialLoading = isDexieLoading || isSyncing;
+  // 🟢 3. HANYA GUNAKAN isDexieLoading AGAR TIDAK BLANK SAAT SYNCING
+  const isInitialLoading = isDexieLoading;
 
   const getScrollContainer = () => {
     return chatContentRef.current?.parentElement as HTMLDivElement | null;
@@ -205,19 +192,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
   useEffect(() => {
     if (!messages.length) return;
 
-    requestAnimationFrame(() => {
-      const container = getScrollContainer();
-      if (!container) return;
-
+    // Scroll ke paling bawah hanya saat pertama kali membuka chat
+    if (limit === 40) {
       requestAnimationFrame(() => {
-        container.scrollTo({
-          top: container.scrollHeight,
-          behavior: "auto",
-        });
+        const container = getScrollContainer();
+        if (!container) return;
 
-        setShowScrollButton(false);
+        requestAnimationFrame(() => {
+          container.scrollTo({
+            top: container.scrollHeight,
+            behavior: "auto",
+          });
+
+          setShowScrollButton(false);
+        });
       });
-    });
+    }
   }, [messages.length, jid, instance]);
 
   useEffect(() => {
@@ -231,6 +221,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
         container.clientHeight;
 
       setShowScrollButton(distanceFromBottom > 300);
+      
+      // Jalankan fungsi load upper scroll
+      handleScrollUpper();
     };
 
     container.addEventListener("scroll", handleScroll);
@@ -239,18 +232,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return () => {
       container.removeEventListener("scroll", handleScroll);
     };
-  }, [messages.length, jid, instance]);
+  }, [messages.length, jid, instance, limit, isFetchingMore]);
 
-  // 4. Pasang Event Listener Scroll
-  useEffect(() => {
-    const container = getScrollContainer();
-    if (!container) return;
-
-    container.addEventListener("scroll", handleScrollUpper);
-    return () => container.removeEventListener("scroll", handleScrollUpper);
-  }, [rawMessages, limit, isFetchingMore]);
-
-  // Reset limit kembali ke 40 jika pengguna berpindah ruang obrolan (JID berubah)
+  // Reset limit kembali ke 40 jika berpindah ruang obrolan
   useEffect(() => {
     setLimit(40);
   }, [realJid, instance]);
@@ -316,6 +300,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
       ref={chatContentRef}
       className="relative w-full min-h-full bg-transparent text-white"
     >
+      {/* 🟢 INDIKATOR BACKGROUND SYNCING MELAYANG (TIDAK MEMBLOKIR UI) */}
+      {isSyncing && (
+        <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
+          <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
+          <span>Menyinkronkan pesan...</span>
+        </div>
+      )}
+
       {/* INCOMING CALL */}
       {startCall?.call && (
         <div className="absolute z-[20] top-0 left-0 right-0 w-full p-2">
@@ -330,13 +322,9 @@ const ChatPage: React.FC<ChatPageProps> = ({
       {/* MESSAGE CONTENT */}
       <div className="sm:px-16 px-5 py-5 sm:py-5 space-y-3 min-h-full bg-transparent">
         {isInitialLoading ? (
-          // <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center gap-2">
-          //   <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
-          //   <span>Memuat percakapan...</span>
-          // </div>
-          <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
-            <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
-            <span>Menyinkronkan pesan...</span>
+          <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center gap-2">
+            <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+            <span>Memuat percakapan...</span>
           </div>
         ) : messages.length > 0 ? (
           messages.map((message: any, index: number) => (
@@ -482,8 +470,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
 export default React.memo(ChatPage);
 
-// 🟢 KOMPONEN VIDEO MESSAGE DENGAN POSTER THUMBNAIL (.jpg)
-// 🟢 KOMPONEN VIDEO MESSAGE DENGAN THUMBNAIL & METADATA
+// 🟢 KOMPONEN VIDEO MESSAGE DENGAN FILTER TEKS "🎥 Video"
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -491,7 +478,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
 
   const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
 
-  // Pastikan URL file & thumbnail valid
   const videoUrl = message.file?.startsWith("http")
     ? message.file
     : `${mediaBaseUrl.replace(/\/$/, "")}${message.file}`;
@@ -509,12 +495,16 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
     }, 50);
   };
 
-  // Format jam untuk pesan
   const formattedTime = new Date(message.timestamp || message.date).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
   });
+
+  // 🟢 CEK APAKAH ADA CAPTION ASLI (SELAIN TEKS DEFAULT "🎥 Video")
+  const hasCustomCaption = 
+    message.message && 
+    !["🎥 Video", "📷 Foto", "📄 Dokumen", "🎨 Stiker"].includes(message.message.trim());
 
   return (
     <div className={`flex ${message.isMyMsg ? "justify-end" : "justify-start"} my-1`}>
@@ -528,7 +518,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
             onClick={handlePlayClick}
             className="relative w-full aspect-video bg-[#111b21] rounded-md overflow-hidden cursor-pointer group border border-[#222d34]/50 flex items-center justify-center"
           >
-            {/* Tag <img> lebih andal daripada Background Image */}
             {thumbUrl && !imgError ? (
               <img
                 src={thumbUrl}
@@ -542,21 +531,18 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
               </div>
             )}
 
-            {/* Overlay gelap transparan */}
             <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-all" />
 
-            {/* Tombol Play Icon */}
             <div className="w-12 h-12 rounded-full bg-black/60 group-hover:bg-black/80 flex items-center justify-center transition-all group-hover:scale-110 z-10 border border-white/20 backdrop-blur-sm">
               <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-white border-b-[8px] border-b-transparent ml-1" />
             </div>
 
-            {/* Keterangan Video di Kiri Bawah */}
             <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-md text-[10px] px-1.5 py-0.5 rounded text-white/90 font-medium z-10 flex items-center gap-1">
               <span>▶</span> Video
             </div>
 
-            {/* Jam Pengiriman di Kanan Bawah Thumbnail (jika tidak ada caption) */}
-            {!message.message && (
+            {/* Jam Pengiriman di Kanan Bawah Thumbnail jika tidak ada caption asli */}
+            {!hasCustomCaption && (
               <div className="absolute bottom-1.5 right-2 bg-black/50 px-1.5 py-0.5 rounded text-[10px] text-white/80 z-10">
                 {formattedTime}
               </div>
@@ -577,8 +563,8 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
           </div>
         )}
 
-        {/* Caption & Timestamp */}
-        {message.message ? (
+        {/* 🟢 TAMPILKAN HANYA JIKA MEMILIKI CAPTION ASLI */}
+        {hasCustomCaption ? (
           <div className="flex justify-between items-end gap-2 pt-1.5 px-1">
             <p className="text-sm text-white/90 break-words leading-tight">{message.message}</p>
             <span className="text-[10px] text-white/60 whitespace-nowrap self-end">{formattedTime}</span>
