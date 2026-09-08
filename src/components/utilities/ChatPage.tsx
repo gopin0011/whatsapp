@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useLayoutEffect,
   useState,
   useMemo,
   useRef,
@@ -59,9 +60,11 @@ const ChatPage: React.FC<ChatPageProps> = ({
   handleOffer = () => {},
   rejectCall = () => {},
 }) => {
-  // 1. State untuk mengontrol berapa banyak pesan yang ditampilkan
   const [limit, setLimit] = useState(40);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
+
+  // 🟢 REF UNTUK MENYIMPAN TINGGI SCROLL SEBELUM DATA BARU DITAMBAHKAN
+  const prevScrollHeightRef = useRef<number>(0);
 
   const dispatch = useDispatch();
   const { jid } = useParams<{ jid: string }>();
@@ -84,7 +87,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const mediaBaseUrl = import.meta.env.VITE_API_CLIENT_URL || "http://192.168.100.245:8082";
 
-  // 🟢 HELPER SINKRONISASI MEDIA & THUMBNAIL VIDEO (.jpg)
   const formatMediaUrl = (
     urlPath: string | null | undefined, 
     isThumb: boolean = false, 
@@ -99,7 +101,6 @@ const ChatPage: React.FC<ChatPageProps> = ({
     const isAudio = ['audio', 'voice', 'ptt'].includes(msgType);
 
     if (isThumb && !isAudio) {
-      // 🟢 Konversi ekstensi video menjadi .jpg untuk thumbnail
       if (msgType === 'video') {
         fileName = fileName.replace(/\.[^/.]+$/, "") + ".jpg";
       }
@@ -110,48 +111,61 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   // =========================================================
-  // 🟢 1. QUERY DEXIE TERBARU (DIURUTKAN SESUAI TIMESTAMP LAMA -> BARU)
+  // 🟢 1. QUERY DEXIE TERBARU (LOAD 40 TERBARU + PAGINATION)
   // =========================================================
   const rawMessages = useLiveQuery(
     async () => {
       if (!realJid) return [];
       
-      // Filter & ambil data, lalu urutkan secara eksplisit berdasarkan timestamp
       const allMatching = await db.messages
         .where("instance")
         .equals(instance)
         .filter((msg) => msg.jid === realJid)
         .toArray();
 
-      // Urutkan dari yang tertua (awal) ke yang terbaru (akhir)
       allMatching.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      // Ambil N pesan TERBARU (di bagian akhir array)
       return allMatching.slice(-limit);
     },
     [instance, realJid, limit]
   );
+
+  const getScrollContainer = () => {
+    return chatContentRef.current?.parentElement as HTMLDivElement | null;
+  };
 
   // 🟢 2. HANDLER SCROLL KE ATAS UNTUK LOAD MORE
   const handleScrollUpper = () => {
     const container = getScrollContainer();
     if (!container) return;
 
-    if (container.scrollTop === 0 && !isFetchingMore && rawMessages && rawMessages.length >= limit) {
+    // Trigger load more saat mendekati bagian paling atas (scrollTop <= 50px)
+    if (container.scrollTop <= 50 && !isFetchingMore && rawMessages && rawMessages.length >= limit) {
       setIsFetchingMore(true);
       
-      const previousScrollHeight = container.scrollHeight;
+      // Simpan tinggi scroll saat ini sebelum item baru di-render
+      prevScrollHeightRef.current = container.scrollHeight;
 
       setLimit((prev) => prev + 40);
-
-      requestAnimationFrame(() => {
-        if (container) {
-          container.scrollTop = container.scrollHeight - previousScrollHeight;
-        }
-        setIsFetchingMore(false);
-      });
     }
   };
+
+  // 🟢 3. PENYESUAIAN POSISI SCROLL SETELAH DATA DITAMBAHKAN (MENGHINDARI LOMPATAN)
+  useLayoutEffect(() => {
+    const container = getScrollContainer();
+    if (!container || !prevScrollHeightRef.current) return;
+
+    // Hitung selisih tinggi baru dengan tinggi lama
+    const newScrollHeight = container.scrollHeight;
+    const heightDifference = newScrollHeight - prevScrollHeightRef.current;
+
+    // Atur ulang posisi scrollTop persis sejauh penambahan tinggi elemen
+    container.scrollTop = heightDifference;
+
+    // Reset ref & status fetching
+    prevScrollHeightRef.current = 0;
+    setIsFetchingMore(false);
+  }, [rawMessages]);
 
   const isDexieLoading = rawMessages === undefined;
 
@@ -186,12 +200,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const { showAttachFiles } = useSelector((state: RootState) => state.utils);
   const { startCall } = useSelector((state: RootState) => state.auth);
 
-  // 🟢 3. HANYA GUNAKAN isDexieLoading AGAR TIDAK BLANK SAAT SYNCING
   const isInitialLoading = isDexieLoading;
-
-  const getScrollContainer = () => {
-    return chatContentRef.current?.parentElement as HTMLDivElement | null;
-  };
 
   useEffect(() => {
     if (!messages.length) return;
@@ -226,19 +235,16 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
       setShowScrollButton(distanceFromBottom > 300);
       
-      // Jalankan fungsi load upper scroll
       handleScrollUpper();
     };
 
     container.addEventListener("scroll", handleScroll);
-    handleScroll();
 
     return () => {
       container.removeEventListener("scroll", handleScroll);
     };
   }, [messages.length, jid, instance, limit, isFetchingMore]);
 
-  // Reset limit kembali ke 40 jika berpindah ruang obrolan
   useEffect(() => {
     setLimit(40);
   }, [realJid, instance]);
@@ -304,7 +310,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       ref={chatContentRef}
       className="relative w-full min-h-full bg-transparent text-white"
     >
-      {/* 🟢 INDIKATOR BACKGROUND SYNCING MELAYANG (TIDAK MEMBLOKIR UI) */}
+      {/* INDIKATOR BACKGROUND SYNCING MELAYANG */}
       {isSyncing && (
         <div className="fixed top-3 right-3 z-50 bg-[#202c33]/80 backdrop-blur-md text-[#00a884] text-xs px-3 py-1.5 rounded-full border border-[#00a884]/30 flex items-center gap-2 shadow-lg">
           <div className="w-3 h-3 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
@@ -325,8 +331,18 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
       {/* MESSAGE CONTENT */}
       <div className="sm:px-16 px-5 py-5 sm:py-5 space-y-3 min-h-full bg-transparent">
+        {/* INDIKATOR LOADING SAAT LOAD MORE KE ATAS */}
+        {isFetchingMore && (
+          <div className="flex justify-center py-2">
+            <div className="w-5 h-5 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+
         {isInitialLoading ? (
-          <></>
+          <div className="text-center text-gray-400 py-10 flex flex-col items-center justify-center gap-2">
+            <div className="w-6 h-6 border-2 border-gray-400 border-t-transparent rounded-full animate-spin"></div>
+            <span>Memuat percakapan...</span>
+          </div>
         ) : messages.length > 0 ? (
           messages.map((message: any, index: number) => (
             <div key={message._id || index}>
@@ -471,7 +487,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
 export default React.memo(ChatPage);
 
-// 🟢 KOMPONEN VIDEO MESSAGE DENGAN FILTER TEKS "🎥 Video"
+// KOMPONEN VIDEO MESSAGE
 const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -502,7 +518,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
     hour12: false,
   });
 
-  // 🟢 CEK APAKAH ADA CAPTION ASLI (SELAIN TEKS DEFAULT "🎥 Video")
   const hasCustomCaption = 
     message.message && 
     !["🎥 Video", "📷 Foto", "📄 Dokumen", "🎨 Stiker"].includes(message.message.trim());
@@ -542,7 +557,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
               <span>▶</span> Video
             </div>
 
-            {/* Jam Pengiriman di Kanan Bawah Thumbnail jika tidak ada caption asli */}
             {!hasCustomCaption && (
               <div className="absolute bottom-1.5 right-2 bg-black/50 px-1.5 py-0.5 rounded text-[10px] text-white/80 z-10">
                 {formattedTime}
@@ -564,7 +578,6 @@ const VideoMessage: React.FC<{ message: any }> = ({ message }) => {
           </div>
         )}
 
-        {/* 🟢 TAMPILKAN HANYA JIKA MEMILIKI CAPTION ASLI */}
         {hasCustomCaption ? (
           <div className="flex justify-between items-end gap-2 pt-1.5 px-1">
             <p className="text-sm text-white/90 break-words leading-tight">{message.message}</p>
