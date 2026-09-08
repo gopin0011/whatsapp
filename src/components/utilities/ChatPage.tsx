@@ -63,7 +63,8 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [limit, setLimit] = useState(40);
   const [isFetchingMore, setIsFetchingMore] = useState(false);
 
-  // 🟢 REF UNTUK MENYIMPAN TINGGI SCROLL SEBELUM DATA BARU DITAMBAHKAN
+  // 🟢 FLAG & REF UNTUK MENGONTROL INITIAL SCROLL & LOAD MORE
+  const isInitialLoadRef = useRef(true);
   const prevScrollHeightRef = useRef<number>(0);
 
   const dispatch = useDispatch();
@@ -111,7 +112,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
   };
 
   // =========================================================
-  // 🟢 1. QUERY DEXIE TERBARU (LOAD 40 TERBARU + PAGINATION)
+  // 🟢 1. QUERY DEXIE
   // =========================================================
   const rawMessages = useLiveQuery(
     async () => {
@@ -134,37 +135,44 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return chatContentRef.current?.parentElement as HTMLDivElement | null;
   };
 
-  // 🟢 2. HANDLER SCROLL KE ATAS UNTUK LOAD MORE
+  // 🟢 2. HANDLER LOAD MORE SCROLL KE ATAS
   const handleScrollUpper = () => {
     const container = getScrollContainer();
     if (!container) return;
 
-    // Trigger load more saat mendekati bagian paling atas (scrollTop <= 50px)
     if (container.scrollTop <= 50 && !isFetchingMore && rawMessages && rawMessages.length >= limit) {
       setIsFetchingMore(true);
       
-      // Simpan tinggi scroll saat ini sebelum item baru di-render
+      // Simpan posisi tinggi kontainer saat ini
       prevScrollHeightRef.current = container.scrollHeight;
 
       setLimit((prev) => prev + 40);
     }
   };
 
-  // 🟢 3. PENYESUAIAN POSISI SCROLL SETELAH DATA DITAMBAHKAN (MENGHINDARI LOMPATAN)
+  // 🟢 3. MENGATUR POSITION SCROLL TEPAT SETELAH PERUBAHAN MESSAGES
   useLayoutEffect(() => {
     const container = getScrollContainer();
-    if (!container || !prevScrollHeightRef.current) return;
+    if (!container || !rawMessages || rawMessages.length === 0) return;
 
-    // Hitung selisih tinggi baru dengan tinggi lama
-    const newScrollHeight = container.scrollHeight;
-    const heightDifference = newScrollHeight - prevScrollHeightRef.current;
+    // A. SCROLL PERTAMA KALI KE PALING BIKIN/BAWAH SAAT MASUK CHAT
+    if (isInitialLoadRef.current) {
+      container.scrollTop = container.scrollHeight;
+      isInitialLoadRef.current = false;
+      setShowScrollButton(false);
+      return;
+    }
 
-    // Atur ulang posisi scrollTop persis sejauh penambahan tinggi elemen
-    container.scrollTop = heightDifference;
+    // B. PENYESUAIAN POSISI SCROLL SAAT LOAD MORE KE ATAS
+    if (prevScrollHeightRef.current > 0) {
+      const newScrollHeight = container.scrollHeight;
+      const heightDifference = newScrollHeight - prevScrollHeightRef.current;
 
-    // Reset ref & status fetching
-    prevScrollHeightRef.current = 0;
-    setIsFetchingMore(false);
+      container.scrollTop = heightDifference;
+
+      prevScrollHeightRef.current = 0;
+      setIsFetchingMore(false);
+    }
   }, [rawMessages]);
 
   const isDexieLoading = rawMessages === undefined;
@@ -202,27 +210,14 @@ const ChatPage: React.FC<ChatPageProps> = ({
 
   const isInitialLoading = isDexieLoading;
 
+  // 🟢 RESET STATE SAAT BERPINDAH RUANG CHAT/JID
   useEffect(() => {
-    if (!messages.length) return;
+    setLimit(40);
+    isInitialLoadRef.current = true;
+    prevScrollHeightRef.current = 0;
+  }, [realJid, instance]);
 
-    // Scroll ke paling bawah hanya saat pertama kali membuka chat
-    if (limit === 40) {
-      requestAnimationFrame(() => {
-        const container = getScrollContainer();
-        if (!container) return;
-
-        requestAnimationFrame(() => {
-          container.scrollTo({
-            top: container.scrollHeight,
-            behavior: "auto",
-          });
-
-          setShowScrollButton(false);
-        });
-      });
-    }
-  }, [messages.length, jid, instance]);
-
+  // 🟢 SCROLL EVENT LISTENER (Hanya untuk memantau scroll button & trigger load upper)
   useEffect(() => {
     const container = getScrollContainer();
     if (!container) return;
@@ -243,11 +238,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
     return () => {
       container.removeEventListener("scroll", handleScroll);
     };
-  }, [messages.length, jid, instance, limit, isFetchingMore]);
-
-  useEffect(() => {
-    setLimit(40);
-  }, [realJid, instance]);
+  }, [rawMessages, limit, isFetchingMore]);
 
   const scrollToBottom = () => {
     const container = getScrollContainer();
