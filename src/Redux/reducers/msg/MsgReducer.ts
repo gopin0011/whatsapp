@@ -51,6 +51,11 @@ export interface ConnectionResult {
     users: ChatUser[];
     online_status: boolean;
     unreadCount: number;
+    // 🟢 Tambahkan properti ini
+    jid?: string;
+    displayName?: string;
+    pushName?: string;
+    avatarUrl?: string;
 }
 
 

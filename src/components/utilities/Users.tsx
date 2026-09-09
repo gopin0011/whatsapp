@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import UserSkeliton from '../reuse/UserSkeliton';
 import SyncIndicator from '../reuse/SyncIndicator';
 import { ChatItem } from '../../db/chatDb';
+import { getAvatarUrl } from '../../utils/avatar';
 
 interface UsersProps {
   latestChats?: ChatItem[];
@@ -110,7 +111,7 @@ const Users: React.FC<UsersProps> = ({
                 {/* Avatar */}
                 {chat.avatarUrl ? (
                   <img
-                    src={chat.avatarUrl}
+                    src={getAvatarUrl(chat.avatarUrl) || ''}
                     alt={title}
                     className="w-10 h-10 rounded-full object-cover flex-shrink-0"
                   />

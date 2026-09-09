@@ -18,6 +18,7 @@ import {
 } from "react-router-dom";
 import useCloseDropDown from "../reuse/CloseDropDown";
 import { toast } from "react-toastify";
+import { getAvatarUrl } from '../../utils/avatar';
 
 interface ChatHeaderLocationState {
   jid?: string;
@@ -277,7 +278,7 @@ const ChatHeader = ({
         {profileUrl ? (
           <div className="relative sm:p-1 sm:w-auto w-[50px]">
             <img
-              src={profileUrl}
+              src={getAvatarUrl(profileUrl) || ''}
               alt={displayName}
               className="w-[40px] h-[40px] rounded-full object-cover"
               onError={(event) => {
