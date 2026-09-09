@@ -30,6 +30,7 @@ import IncomingCall from "../cards/IncommingCall";
 import { ChevronDown } from "lucide-react";
 import ShowFullImg from "./ShowFullImg";
 import SyncIndicator from '../reuse/SyncIndicator';
+import { useLiveQuery } from "dexie-react-hooks";
 
 const getRandomColors = (
   count: number,
@@ -79,6 +80,22 @@ const ChatPage: React.FC<ChatPageProps> = ({
     }
     return decoded.trim();
   }, [jid]);
+
+  const rawMessagesFromDb = useLiveQuery(async () => {
+    if (!realJid || !instance) return [];
+
+    // Ambil semua pesan untuk instance dan JID aktif
+    const allMatching = await db.messages
+      .where("instance")
+      .equals(instance)
+      .filter((msg) => msg.jid === realJid)
+      .toArray();
+
+    // Urutkan berdasarkan timestamp ASC
+    return allMatching.sort(
+      (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+  }, [realJid, instance]);
 
   const chatContentRef = useRef<HTMLDivElement | null>(null);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -136,6 +153,23 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const getScrollContainer = () => {
     return chatContentRef.current?.parentElement as HTMLDivElement | null;
   };
+
+  useEffect(() => {
+    if (!rawMessagesFromDb) return;
+
+    const PAGE_SIZE = 50;
+    const totalCount = rawMessagesFromDb.length;
+
+    // Jika pertama kali dimuat atau pesan bertambah (pesan baru dari WebSocket)
+    const startIndex = Math.max(0, totalCount - PAGE_SIZE);
+    const chunk = rawMessagesFromDb.slice(startIndex);
+    const formatted = chunk.map(transformMessage);
+
+    setMessages(formatted);
+    setOffset(startIndex);
+    setHasMore(startIndex > 0);
+    setIsInitialLoading(false);
+  }, [rawMessagesFromDb]);
 
   // 1. INITIAL FETCH PESAN DARI DEXIE
   useEffect(() => {

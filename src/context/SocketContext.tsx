@@ -79,24 +79,28 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
       const msgInstance = payload.instance || instance || 'wa-ninih';
       const msgId = payload.id || payload.key?.id || `${Date.now()}_${Math.random()}`;
+      
+      // 🟢 Normalisasi JID agar konsisten (Grup maupun Personal)
       const jid = payload.jid || payload.key?.remoteJid;
       
       if (!jid) return;
 
+      // Ambil sender pushName / participant untuk grup
+      const participantJid = payload.key?.participant || payload.participant;
+      const senderName = payload.pushName || payload.contactName || payload.displayName || participantJid?.split('@')[0] || jid.split('@')[0];
+
       const fromMe = payload.fromMe ?? payload.key?.fromMe ?? payload.isMyMsg ?? false;
       const rawText = payload.text || payload.message || payload.rawText || '';
       const timestamp = payload.timestamp || payload.date || new Date().toISOString();
-      const pushName = payload.pushName || payload.contactName || payload.displayName;
       
       const rawMediaUrl = payload.mediaUrl || payload.file;
       const rawThumbUrl = payload.thumbUrl || rawMediaUrl;
       const msgType = payload.mediaType || payload.msgType || 'text';
       const displayText = payload.displayText || formatPreviewText(rawText, msgType);
-
-      // 🟢 DETEKSI APAKAH PESAN BERASAL DARI GRUP ATAU PERSONAL
       const isGroup = jid.endsWith('@g.us');
 
       await db.transaction('rw', db.messages, db.chats, db.contacts, async () => {
+        // 🟢 Put ke messages dengan format JID konsisten
         await db.messages.put({
           id: String(msgId),
           instance: msgInstance,
@@ -107,22 +111,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
           msgType: msgType,
           file: formatMediaUrl(rawMediaUrl, false, msgType),
           thumbUrl: formatMediaUrl(rawThumbUrl, true, msgType),
-          sender: { name: pushName || jid.split('@')[0] || 'Unknown' }
+          sender: { name: senderName || 'Unknown' }
         });
 
         const existingChat = await db.chats.get([msgInstance, jid]);
 
-        // 🟢 CARI AVATAR DARI TABEL CONTACTS JIKA DI CHAT MASIH KOSONG
         let fallbackAvatar = null;
         if (!payload.avatarUrl && !existingChat?.avatarUrl) {
           const contact = await db.contacts.get([msgInstance, jid]);
           fallbackAvatar = contact?.avatarUrl || null;
         }
 
-        const finalAvatar = 
-          payload.avatarUrl || 
-          existingChat?.avatarUrl || 
-          fallbackAvatar;
+        const finalAvatar = payload.avatarUrl || existingChat?.avatarUrl || fallbackAvatar;
 
         if (!existingChat || new Date(timestamp).getTime() >= new Date(existingChat.timestamp).getTime()) {
           await db.chats.put({
@@ -131,8 +131,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
             text: displayText,
             timestamp: timestamp,
             fromMe: Boolean(fromMe),
-            pushName: pushName || existingChat?.pushName,
-            displayName: payload.displayName || pushName || existingChat?.displayName || (isGroup ? `Group-${jid.split('@')[0]}` : jid.split('@')[0]),
+            pushName: senderName || existingChat?.pushName,
+            displayName: payload.displayName || existingChat?.displayName || (isGroup ? `Group-${jid.split('@')[0]}` : jid.split('@')[0]),
             avatarUrl: finalAvatar,
             isGroup: isGroup
           });
