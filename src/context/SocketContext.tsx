@@ -93,7 +93,10 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
       const msgType = payload.mediaType || payload.msgType || 'text';
       const displayText = payload.displayText || formatPreviewText(rawText, msgType);
 
-      await db.transaction('rw', db.messages, db.chats, async () => {
+      // 🟢 DETEKSI APAKAH PESAN BERASAL DARI GRUP ATAU PERSONAL
+      const isGroup = jid.endsWith('@g.us');
+
+      await db.transaction('rw', db.messages, db.chats, db.contacts, async () => {
         await db.messages.put({
           id: String(msgId),
           instance: msgInstance,
@@ -109,6 +112,18 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
         const existingChat = await db.chats.get([msgInstance, jid]);
 
+        // 🟢 CARI AVATAR DARI TABEL CONTACTS JIKA DI CHAT MASIH KOSONG
+        let fallbackAvatar = null;
+        if (!payload.avatarUrl && !existingChat?.avatarUrl) {
+          const contact = await db.contacts.get([msgInstance, jid]);
+          fallbackAvatar = contact?.avatarUrl || null;
+        }
+
+        const finalAvatar = 
+          payload.avatarUrl || 
+          existingChat?.avatarUrl || 
+          fallbackAvatar;
+
         if (!existingChat || new Date(timestamp).getTime() >= new Date(existingChat.timestamp).getTime()) {
           await db.chats.put({
             instance: msgInstance,
@@ -117,8 +132,9 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
             timestamp: timestamp,
             fromMe: Boolean(fromMe),
             pushName: pushName || existingChat?.pushName,
-            displayName: payload.displayName || pushName || existingChat?.displayName || jid.split('@')[0],
-            avatarUrl: payload.avatarUrl || existingChat?.avatarUrl || null
+            displayName: payload.displayName || pushName || existingChat?.displayName || (isGroup ? `Group-${jid.split('@')[0]}` : jid.split('@')[0]),
+            avatarUrl: finalAvatar,
+            isGroup: isGroup
           });
         }
       });
@@ -209,8 +225,12 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
 
           // Ambil pesan terbaru per-chat untuk update header daftar chat
           const chatKey = `${msgInstance}_${jid}`;
-          const existingChat = chatMap.get(chatKey);
-          if (!existingChat || new Date(timestamp).getTime() >= new Date(existingChat.timestamp).getTime()) {
+          const existingChatInMap = chatMap.get(chatKey);
+          
+          // 🟢 Ambil data chat yang sudah ada di Dexie agar avatarUrl tidak hilang saat sync
+          const existingChatInDb = await db.chats.get([msgInstance, jid]);
+
+          if (!existingChatInMap || new Date(timestamp).getTime() >= new Date(existingChatInMap.timestamp).getTime()) {
             chatMap.set(chatKey, {
               instance: msgInstance,
               jid: jid,
@@ -218,8 +238,8 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
               timestamp: timestamp,
               fromMe: Boolean(fromMe),
               pushName: pushName,
-              displayName: payload.displayName || pushName || jid.split('@')[0],
-              avatarUrl: payload.avatarUrl || null
+              displayName: payload.displayName || pushName || existingChatInDb?.displayName || jid.split('@')[0],
+              avatarUrl: payload.avatarUrl || existingChatInDb?.avatarUrl || null
             });
           }
         }

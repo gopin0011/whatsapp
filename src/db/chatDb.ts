@@ -22,11 +22,24 @@ export interface ChatItem {
   pushName?: string;
   displayName: string;
   avatarUrl?: string;
+  isGroup?: boolean;
+
+}
+
+// 🟢 TAMBAHKAN INTERFACE CONTACT
+export interface ContactItem {
+  jid: string;
+  instance: string;
+  name?: string;
+  avatarUrl?: string;
+  isGroup?: boolean;
+  updatedAt?: string;
 }
 
 export class WhatsAppOfflineDB extends Dexie {
   chats!: Table<ChatItem, [string, string]>;
   messages!: Table<MessageItem, string>;
+  contacts!: Table<ContactItem, [string, string]>;
 
   constructor() {
     super('WhatsAppOfflineDB');
@@ -47,6 +60,13 @@ export class WhatsAppOfflineDB extends Dexie {
         // Hapus isi tabel chats lama agar tidak konflik saat struktur primary key berubah
         await trans.table('chats').clear();
       });
+
+    // 🟢 Naikkan ke Versi 3 untuk mendaftarkan tabel contacts
+    this.version(3).stores({
+      chats: '[instance+jid], instance, jid, timestamp',
+      messages: 'id, instance, jid, timestamp',
+      contacts: '[instance+jid], instance, jid' // Compound key instance + jid
+    });
   }
 }
 
