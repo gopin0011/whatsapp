@@ -7,6 +7,7 @@ interface SocketContextType {
   centrifuge: Centrifuge | null;
   isConnected: boolean;
   isSyncing: boolean;
+  isReceivingSocketMsg: boolean;
   activeInstance: string;
 }
 
@@ -19,6 +20,7 @@ const SocketContext = createContext<SocketContextType>({
   centrifuge: null,
   isConnected: false,
   isSyncing: false,
+  isReceivingSocketMsg: false,
   activeInstance: 'wa-ninih',
 });
 
@@ -29,6 +31,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   const [centrifuge, setCentrifuge] = useState<Centrifuge | null>(null);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [isReceivingSocketMsg, setIsReceivingSocketMsg] = useState<boolean>(false);
 
   const socketBufferRef = useRef<any[]>([]);
   const isConnectedRef = useRef<boolean>(false);
@@ -306,11 +309,16 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
     sub.on('publication', async (ctx) => {
       console.log("📩 PESAN BARU DITERIMA DARI WEBSOCKET:", ctx.data);
 
-      // Cek apakah WebSocket terhubung DAN TIDAK SEDANG SINKRONISASI HTTP
       if (isConnectedRef.current && !isSyncingRef.current) {
+        // 🟢 Nyalakan indikator selama 1.5 detik saat pesan socket diproses
+        setIsReceivingSocketMsg(true);
+
         await saveToDexie(ctx.data);
+
+        setTimeout(() => {
+          setIsReceivingSocketMsg(false);
+        }, 1500);
       } else {
-        console.warn('⚠️ Socket offline atau sedang proses Sync HTTP, menyimpan pesan ke antrian buffer...');
         socketBufferRef.current.push(ctx.data);
       }
     });
@@ -327,7 +335,7 @@ export const SocketProvider: React.FC<SocketProviderProps> = ({
   }, [centrifuge, instance]);
 
   return (
-    <SocketContext.Provider value={{ centrifuge, isConnected, isSyncing, activeInstance: instance }}>
+    <SocketContext.Provider value={{ centrifuge, isConnected, isSyncing, isReceivingSocketMsg, activeInstance: instance }}>
       {children}
     </SocketContext.Provider>
   );

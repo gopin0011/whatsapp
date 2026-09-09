@@ -65,10 +65,10 @@ const ChatPage: React.FC<ChatPageProps> = ({
   const [isFetchingMore, setIsFetchingMore] = useState(false);
   const [hasMore, setHasMore] = useState(true);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
-
+  
   const dispatch = useDispatch();
   const { jid } = useParams<{ jid: string }>();
-  const { isSyncing } = useSocket();
+  const { isSyncing, isReceivingSocketMsg } = useSocket();
 
   const realJid = useMemo(() => {
     if (!jid) return "";
@@ -340,7 +340,7 @@ const ChatPage: React.FC<ChatPageProps> = ({
       ref={chatContentRef}
       className="relative w-full min-h-full bg-transparent text-white"
     >
-      {isSyncing && (
+      {(isSyncing || isReceivingSocketMsg) && (
         <SyncIndicator position="bottom-right" />
       )}
 
